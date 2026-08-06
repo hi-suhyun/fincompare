@@ -39,6 +39,14 @@ export interface RequestQueueOptions {
   sleep?: Sleep;
   /** 0~1 난수. 테스트에서 고정하려고 주입 가능하게 둔다 */
   random?: () => number;
+  /**
+   * 동시에 처리할 요청 수. 기본 1 (직렬).
+   *
+   * 유량 자체는 RateLimiter 가 막으므로 동시성은 "네트워크 왕복을 겹치게 할지"의 문제다.
+   * 직렬이면 RTT 가 그대로 누적된다 — 기업 마스터 시딩(약 4,000회)에서
+   * 직렬은 26분, 동시성 8이면 3분대다. 대량 백필 작업에서만 올려 쓴다.
+   */
+  concurrency?: number;
 }
 
 /** 시도 횟수에 따른 대기 시간. 지터 포함 */
@@ -56,8 +64,10 @@ export class RequestQueue {
   private readonly policy: RetryPolicy;
   private readonly sleep: Sleep;
   private readonly random: () => number;
-  /** 직렬 처리를 위한 꼬리 프로미스 */
-  private tail: Promise<unknown> = Promise.resolve();
+  private readonly concurrency: number;
+
+  private active = 0;
+  private readonly waiters: Array<() => void> = [];
   private pending = 0;
 
   constructor(options: RequestQueueOptions) {
@@ -66,6 +76,7 @@ export class RequestQueue {
     this.policy = { ...DEFAULT_RETRY_POLICY, ...options.retry };
     this.sleep = options.sleep ?? realSleep;
     this.random = options.random ?? Math.random;
+    this.concurrency = Math.max(1, options.concurrency ?? 1);
   }
 
   get pendingCount(): number {
@@ -73,31 +84,41 @@ export class RequestQueue {
   }
 
   /**
-   * 요청을 큐에 넣는다. 토큰을 기다린 뒤 실행하고, 재시도 가능한 오류면 백오프 후 재시도한다.
+   * 요청을 큐에 넣는다. 슬롯과 토큰을 기다린 뒤 실행하고,
+   * 재시도 가능한 오류면 백오프 후 재시도한다.
    *
    * `task` 는 반드시 SourceError 를 던져야 분류가 동작한다.
    * 그 외 예외는 재시도 없이 그대로 올린다 — 정체를 모르는 오류를 재시도하면
    * 같은 실패를 반복하면서 한도만 먹는다.
    */
-  enqueue<T>(task: () => Promise<T>): Promise<T> {
+  async enqueue<T>(task: () => Promise<T>): Promise<T> {
     this.pending += 1;
-    const run = this.tail.then(
-      () => this.runWithRetry(task),
-      () => this.runWithRetry(task),
-    );
-    // tail 은 실패를 전파하지 않아야 다음 작업이 이어진다
-    this.tail = run.catch(() => undefined);
-    return run.finally(() => {
+    await this.acquireSlot();
+    try {
+      return await this.runWithRetry(task);
+    } finally {
+      this.releaseSlot();
       this.pending -= 1;
-    });
+    }
+  }
+
+  private async acquireSlot(): Promise<void> {
+    while (this.active >= this.concurrency) {
+      await new Promise<void>((resolve) => this.waiters.push(resolve));
+    }
+    this.active += 1;
+  }
+
+  private releaseSlot(): void {
+    this.active -= 1;
+    this.waiters.shift()?.();
   }
 
   private async runWithRetry<T>(task: () => Promise<T>): Promise<T> {
     let lastError: unknown;
 
     for (let attempt = 1; attempt <= this.policy.maxAttempts; attempt++) {
-      await this.waitForToken();
-      this.limiter.consume();
+      await this.acquireToken();
 
       try {
         return await task();
@@ -125,7 +146,13 @@ export class RequestQueue {
     throw lastError;
   }
 
-  private async waitForToken(): Promise<void> {
+  /**
+   * 토큰을 하나 확보할 때까지 기다린다.
+   *
+   * tryConsume() 이 실패하면 다른 동시 요청이 먼저 가져간 것이다.
+   * 그 뒤에는 nextDelayMs() 가 0보다 커지므로 다음 반복에서 잠들고, 무한 회전하지 않는다.
+   */
+  private async acquireToken(): Promise<void> {
     for (;;) {
       const delay = this.limiter.nextDelayMs();
 
@@ -138,8 +165,12 @@ export class RequestQueue {
         );
       }
 
-      if (delay === 0) return;
-      await this.sleep(delay);
+      if (delay > 0) {
+        await this.sleep(delay);
+        continue;
+      }
+
+      if (this.limiter.tryConsume()) return;
     }
   }
 }

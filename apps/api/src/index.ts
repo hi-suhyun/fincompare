@@ -1,0 +1,87 @@
+import express, { type ErrorRequestHandler } from 'express';
+import { count } from 'drizzle-orm';
+import { loadConfig, describeMissingKeys } from './config.js';
+import { SourceError } from './core/errors.js';
+import { createDb } from './db/client.js';
+import { companies } from './db/schema.js';
+import { createCompaniesRouter } from './routes/companies.js';
+
+const config = loadConfig();
+const handle = createDb(config.DATABASE_URL);
+
+const app = express();
+app.use(express.json());
+
+// 프론트는 Vite 개발 서버(5173)에서 뜬다. 가족 전용 배포라 오리진을 넓게 열 이유가 없다.
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
+
+app.get('/api/health', (_req, res, next) => {
+  handle.db
+    .select({ value: count() })
+    .from(companies)
+    .then(([row]) => {
+      res.json({
+        ok: true,
+        companies: row?.value ?? 0,
+        missingKeys: describeMissingKeys(config),
+      });
+    })
+    .catch(next);
+});
+
+app.use('/api/companies', createCompaniesRouter(handle.db));
+
+const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
+  if (error instanceof SourceError) {
+    // 외부 소스 문제는 502 가 맞다. 우리 잘못이 아니라는 걸 구분해야
+    // 화면에서 "데이터 제공처 문제"로 안내할 수 있다.
+    const status = error.kind === 'QUOTA_EXCEEDED' ? 429 : 502;
+    res.status(status).json({ error: error.kind, message: error.message, source: error.source });
+    return;
+  }
+  console.error(error);
+  res.status(500).json({ error: 'INTERNAL', message: '서버 오류' });
+};
+app.use(errorHandler);
+
+// 포트가 이미 쓰이고 있으면 크게 알린다. 조용히 넘어가면 요청이 엉뚱한 서버로 가서
+// "서버는 떴는데 응답이 없다"는 상황을 한참 헤매게 된다.
+const server = app.listen(config.PORT, '127.0.0.1', () => {
+  console.log(`API 서버: http://localhost:${config.PORT}`);
+  const missing = describeMissingKeys(config);
+  if (missing.length > 0) {
+    console.log('설정되지 않은 키 (해당 기능 사용 불가):');
+    for (const key of missing) console.log(`  - ${key}`);
+  }
+});
+
+server.on('error', (error: NodeJS.ErrnoException) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(
+      `\n❌ 포트 ${config.PORT} 이 이미 사용 중입니다.\n` +
+        `   점유 프로세스 확인: lsof -nP -iTCP:${config.PORT} -sTCP:LISTEN\n` +
+        `   다른 포트를 쓰려면 .env 의 PORT 를 바꾸세요.\n`,
+    );
+  } else {
+    console.error('서버 시작 실패:', error);
+  }
+  process.exit(1);
+});
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => {
+    server.close(() => {
+      handle.close();
+      process.exit(0);
+    });
+  });
+}

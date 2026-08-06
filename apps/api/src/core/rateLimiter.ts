@@ -125,17 +125,31 @@ export class RateLimiter {
   }
 
   /**
-   * 토큰 1개를 소비한다. 호출 전에 nextDelayMs() 가 0 인지 확인해야 한다.
-   * 토큰이 없으면 던진다 — 조용히 유량을 넘기느니 버그를 드러내는 게 낫다.
+   * 토큰이 있으면 1개를 소비하고 true, 없으면 아무것도 하지 않고 false.
+   *
+   * 확인과 소비가 한 동작이어야 한다. 동시 요청이 여럿이면
+   * nextDelayMs() 로 확인한 뒤 consume() 하는 사이에 다른 요청이 토큰을 가져간다.
    */
-  consume(): void {
+  tryConsume(): boolean {
     this.rolloverIfNeeded();
+    if (this.isBlockedToday) return false;
+
     this.refill();
-    if (this.tokens < 1) {
-      throw new Error('토큰이 없습니다. nextDelayMs() 로 대기한 뒤 호출하세요');
-    }
+    if (this.tokens < 1) return false;
+
     this.tokens -= 1;
     this.usedToday += 1;
+    return true;
+  }
+
+  /**
+   * 토큰 1개를 소비한다. 없으면 던진다 — 조용히 유량을 넘기느니 버그를 드러내는 게 낫다.
+   * 동시 요청 환경에서는 tryConsume() 을 쓸 것.
+   */
+  consume(): void {
+    if (!this.tryConsume()) {
+      throw new Error('토큰이 없습니다. nextDelayMs() 로 대기한 뒤 호출하세요');
+    }
   }
 
   /** 소스가 일일 한도 초과를 통보했을 때 — 그날은 더 이상 내보내지 않는다 */

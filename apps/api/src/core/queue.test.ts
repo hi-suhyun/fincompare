@@ -97,6 +97,59 @@ describe('RequestQueue — 기본 동작', () => {
     await expect(following).resolves.toBe('살아있음');
   });
 
+  it('동시성을 올리면 요청이 겹쳐서 실행된다', async () => {
+    const h = makeHarness();
+    const queue = new RequestQueue({
+      source: 'DART',
+      limiter: h.limiter,
+      sleep: h.sleep,
+      concurrency: 3,
+    });
+
+    let concurrent = 0;
+    let peak = 0;
+    let openGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+
+    const tasks = [1, 2, 3, 4, 5].map(() =>
+      queue.enqueue(async () => {
+        concurrent += 1;
+        peak = Math.max(peak, concurrent);
+        await gate;
+        concurrent -= 1;
+        return 1;
+      }),
+    );
+
+    // 이벤트 루프를 비워 슬롯이 다 채워지게 한다
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(peak).toBe(3); // 5개를 넣어도 동시에 3개까지만
+    expect(queue.pendingCount).toBe(5); // 나머지 2개는 슬롯을 기다리는 중
+
+    openGate();
+    await Promise.all(tasks);
+    expect(queue.pendingCount).toBe(0);
+  });
+
+  it('동시성을 넘겨도 유량 제한은 그대로 지킨다', async () => {
+    const h = makeHarness({ capacity: 2, refillPerSecond: 2 });
+    const queue = new RequestQueue({
+      source: 'DART',
+      limiter: h.limiter,
+      sleep: h.sleep,
+      concurrency: 5,
+    });
+
+    await Promise.all([1, 2, 3, 4].map(() => queue.enqueue(() => Promise.resolve(1))));
+
+    // 버스트 2개는 즉시, 나머지 2개는 토큰을 기다린다
+    expect(h.slept.length).toBeGreaterThan(0);
+    expect(h.limiter.quota.used).toBe(4);
+  });
+
   it('토큰이 없으면 기다렸다가 보낸다', async () => {
     const h = makeHarness({ capacity: 1, refillPerSecond: 2 });
     const queue = new RequestQueue({ source: 'SEC', limiter: h.limiter, sleep: h.sleep });

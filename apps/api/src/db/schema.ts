@@ -30,6 +30,12 @@ export const companies = sqliteTable(
     /** 20-F / 40-F 제출자. 1차 범위에서 미지원 */
     isAdr: integer('is_adr', { mode: 'boolean' }).notNull().default(false),
     isSupported: integer('is_supported', { mode: 'boolean' }).notNull().default(true),
+    /**
+     * 검색 순위 보정. 클수록 위로 온다.
+     * 시가총액이 없는 지금은 큐레이션 목록으로 채운다 (data/koreanAliases.ts).
+     * Phase 5 에서 시가총액이 들어오면 그것으로 대체할 수 있다.
+     */
+    prominence: integer('prominence').notNull().default(0),
     updatedAt: text('updated_at').notNull(),
   },
   (t) => [

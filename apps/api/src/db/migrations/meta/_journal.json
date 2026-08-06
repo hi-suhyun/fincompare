@@ -8,6 +8,13 @@
       "when": 1785977077947,
       "tag": "0000_unusual_power_pack",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1785979615141,
+      "tag": "0001_stormy_blonde_phantom",
+      "breakpoints": true
     }
   ]
 }

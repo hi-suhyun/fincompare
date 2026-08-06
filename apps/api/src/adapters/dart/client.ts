@@ -65,6 +65,51 @@ export class DartClient {
     return result === null ? null : (result.value as z.infer<S>);
   }
 
+  /**
+   * 바이너리 응답 (corpCode.xml 은 zip 으로 온다).
+   *
+   * 오류일 때는 JSON 이 오므로, zip 시그니처가 아니면 JSON 으로 해석해 status 를 본다.
+   */
+  async callBinary(
+    endpoint: string,
+    params: Record<string, string | number> = {},
+    ttlMs: number = TTL_MS.COMPANY_MASTER,
+  ): Promise<Uint8Array | null> {
+    const query = new URLSearchParams({
+      crtfc_key: this.apiKey,
+      ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])),
+    });
+
+    const result = await this.client.get({
+      cacheKey: buildCacheKey('DART', endpoint, params),
+      url: `${BASE_URL}/${endpoint}.xml?${query.toString()}`,
+      ttlMs,
+      parse: (bytes) => {
+        // PK\x03\x04 — zip 시그니처
+        const isZip =
+          bytes.length > 4 &&
+          bytes[0] === 0x50 &&
+          bytes[1] === 0x4b &&
+          bytes[2] === 0x03 &&
+          bytes[3] === 0x04;
+
+        if (isZip) return bytes;
+
+        // zip 이 아니면 오류 응답이다. status 를 꺼내 분류한다.
+        const text = new TextDecoder().decode(bytes);
+        const status = /<status>(\d+)<\/status>/.exec(text)?.[1];
+        const message = /<message>(.*?)<\/message>/.exec(text)?.[1] ?? text.slice(0, 200);
+        const kind = status === undefined ? 'PARSE' : (classifyDartStatus(status) ?? 'PARSE');
+
+        throw new SourceError('DART', kind, `${endpoint}: [${status ?? '?'}] ${message}`, {
+          ...(status === undefined ? {} : { code: status }),
+        });
+      },
+    });
+
+    return result === null ? null : result.value;
+  }
+
   private parseEnvelope<S extends z.ZodType>(
     bytes: Uint8Array,
     schema: S,
