@@ -1,6 +1,7 @@
 export * from './schema/company.js';
 export * from './schema/financial.js';
 export * from './period/align.js';
+export * from './search/hangul.js';
 export * from './metrics/formulas.js';
 export * from './metrics/ttm.js';
 export * from './metrics/normalize.js';
