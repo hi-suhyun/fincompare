@@ -72,6 +72,22 @@ export const USGAAP_ACCOUNT_MAP: AccountMap = {
       'WeightedAverageNumberOfDilutedSharesOutstanding',
     ],
   },
+
+  sharesTotal: {
+    // 미국 기업은 우선주가 상장되는 경우가 드물어 보통주 수와 대개 같다.
+    // 그래도 EPS·BPS 분모를 국가 간 동일하게 맞추려고 같은 필드를 채운다.
+    tags: [
+      'WeightedAverageNumberOfSharesOutstandingBasic',
+      'EntityCommonStockSharesOutstanding',
+      'CommonStockSharesOutstanding',
+    ],
+  },
+
+  eps: {
+    // K-IFRS 와 마찬가지로 공시값을 쓴다. US GAAP 도 희석·배분 규칙이 복잡하다.
+    tags: ['EarningsPerShareBasic', 'IncomeLossFromContinuingOperationsPerBasicShare'],
+    note: '공시값 사용. 직접 계산 금지',
+  },
 };
 
 /** totalLiabilities 미태깅 시 파생 계산에 쓰는 태그 */

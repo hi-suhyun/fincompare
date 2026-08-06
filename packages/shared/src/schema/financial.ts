@@ -20,6 +20,20 @@ export const BaseMetricIdSchema = z.enum([
   'equityControlling',
   /** 보통주 유통주식수 */
   'sharesOutstanding',
+  /**
+   * 보통주 + 우선주 유통주식수.
+   * 참가적 우선주가 있는 기업(삼성전자 등)의 EPS·BPS 분모가 이 값이다.
+   */
+  'sharesTotal',
+  /**
+   * 기본주당이익 — 계산이 아니라 **공시값**이다.
+   *
+   * 직접 계산하면 안 되는 이유: 삼성전자 2023 공시 EPS 는 2,131원인데
+   * 지배주주순이익 / 보통주 유통주식수로 계산하면 2,424원이 나온다(13.7% 과대).
+   * 참가적 우선주가 이익을 나눠 갖기 때문이다. 배분 규칙은 기업마다 다르므로
+   * 공시된 값을 그대로 쓰는 게 유일하게 안전하다.
+   */
+  'eps',
   /** 기말 종가 */
   'closePrice',
 ]);
@@ -30,7 +44,6 @@ export const DerivedMetricIdSchema = z.enum([
   'netMargin',
   'roe',
   'debtRatio',
-  'eps',
   'bps',
   'per',
   'pbr',
@@ -48,6 +61,7 @@ export const STOCK_METRICS: ReadonlySet<BaseMetricId> = new Set([
   'totalEquity',
   'equityControlling',
   'sharesOutstanding',
+  'sharesTotal',
   'closePrice',
 ]);
 
@@ -122,7 +136,8 @@ export const METRIC_META: Record<MetricId, { label: string; unit: string; kind: 
   totalLiabilities: { label: '부채총계', unit: '통화', kind: 'absolute' },
   totalEquity: { label: '자본총계', unit: '통화', kind: 'absolute' },
   equityControlling: { label: '지배주주지분', unit: '통화', kind: 'absolute' },
-  sharesOutstanding: { label: '유통주식수', unit: '주', kind: 'absolute' },
+  sharesOutstanding: { label: '유통주식수(보통주)', unit: '주', kind: 'absolute' },
+  sharesTotal: { label: '유통주식수(보통주+우선주)', unit: '주', kind: 'absolute' },
   closePrice: { label: '종가', unit: '통화', kind: 'valuation' },
   operatingMargin: { label: '영업이익률', unit: '%', kind: 'ratio' },
   netMargin: { label: '순이익률', unit: '%', kind: 'ratio' },

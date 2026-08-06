@@ -64,4 +64,13 @@ export const KIFRS_ACCOUNT_MAP: AccountMap = {
     namePattern: /지배(기업)?\s*(소유주|주주)\s*지분/,
     statements: ['BS'],
   },
+
+  eps: {
+    // 공시된 기본주당이익을 그대로 쓴다. 직접 계산하면 참가적 우선주가 있는 기업에서 틀린다.
+    // 삼성전자 2023: 공시 2,131원 vs 보통주로 나눈 계산값 2,424원.
+    tags: ['ifrs-full_BasicEarningsLossPerShare'],
+    namePattern: /^기본주당이익(\(손실\))?$/,
+    statements: ['IS', 'CIS'],
+    note: '공시값 사용. 직접 계산 금지',
+  },
 };

@@ -208,12 +208,42 @@ debtRatio       = totalLiabilities / totalEquity          // 한국식 부채비
 roe             = netIncome / avg(equityControlling_기초, equityControlling_기말)
                   // 기초값 없으면 기말값 사용 + degraded 플래그
 
-eps             = netIncome / sharesOutstanding            // 지배주주 기준
-bps             = equityControlling / sharesOutstanding
+eps             = 공시값 그대로 사용  ← 계산하지 않는다 (아래 5.1 참고)
+bps             = equityControlling / sharesTotal          // EPS 와 같은 분모
 per             = closePrice / eps                         // eps <= 0 이면 null (적자 PER 무의미)
 pbr             = closePrice / bps
-marketCap       = closePrice * sharesOutstanding
+marketCap       = closePrice * sharesOutstanding            // 보통주 기준
 ```
+
+### 5.1 EPS 는 절대 직접 계산하지 않는다 (실측으로 발견)
+
+처음 설계에서 `EPS = 지배주주순이익 / 보통주 유통주식수`로 잡았다가 **틀린 것을 확인**했다.
+
+삼성전자 2023 실측:
+
+| 계산 방식 | 결과 | 판정 |
+|---|---|---|
+| 지배주주순이익 ÷ **보통주** (5,969,782,550) | 2,424원 | ❌ **공시 대비 +13.7%** |
+| 지배주주순이익 ÷ **보통주+우선주** (6,792,669,250) | 2,131원 | ✅ 공시값과 일치 |
+| **DART 공시값** `ifrs-full_BasicEarningsLossPerShare` | **2,131원** | ← 이것을 쓴다 |
+
+원인은 **참가적 우선주**다. 삼성전자우(005935)는 보통주와 이익을 나눠 갖기 때문에
+K-IFRS 기본주당이익이 총 주식수 기준으로 배분된다. 배분 규칙은 기업마다 다르고
+(비참가적·누적적 여부, 전환권, 자기주식 변동) 우리가 재현할 방법이 없다.
+
+**결정:**
+
+1. `eps` 를 **BASE 지표로 승격**하고 공시 태그에서 그대로 읽는다
+   - K-IFRS: `ifrs-full_BasicEarningsLossPerShare`
+   - US GAAP: `EarningsPerShareBasic`
+2. 직접 계산(`estimateEps`)은 공시값이 없을 때의 **폴백**으로만 쓰고,
+   분모는 **총 주식수(보통주+우선주)**를 쓴다. 화면에는 "추정치" 표시를 붙인다
+3. `BPS` 도 같은 분모(총 주식수)를 쓴다. 분모가 다르면 PER 과 PBR 이
+   서로 다른 기준이 되어 나란히 놓고 볼 수 없다
+4. `sharesTotal` 을 BASE 지표에 추가한다
+
+PER 이 12% 낮게 나오는 오차는 30년 경력 투자자가 화면을 보자마자 알아채는 크기다
+(`03-user-context.md` 2.3).
 
 **테스트 케이스 목록 (Phase 1에서 작성):**
 

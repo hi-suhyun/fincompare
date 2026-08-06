@@ -59,14 +59,37 @@ export const debtRatio = (totalLiabilities: Num, totalEquity: Num): Num =>
 
 // ------------------------------------------------------------- 밸류에이션
 
-export const eps = (netIncomeControlling: Num, sharesOutstanding: Num): Num =>
-  safeDivide(netIncomeControlling, sharesOutstanding);
+/**
+ * EPS 폴백 계산.
+ *
+ * ⚠️ 가능하면 쓰지 말 것. EPS 는 공시값(`ifrs-full_BasicEarningsLossPerShare` /
+ * `EarningsPerShareBasic`)을 그대로 쓰는 게 원칙이다.
+ *
+ * 이유: 참가적 우선주가 있으면 이익이 보통주·우선주에 배분된다.
+ * 삼성전자 2023 공시 EPS 는 2,131원인데 지배주주순이익을 보통주 유통주식수로
+ * 나누면 2,424원(13.7% 과대)이 나온다. 총 주식수로 나눠야 2,131원이 된다.
+ * 배분 규칙은 기업마다 다르므로 직접 계산은 근사치일 뿐이다.
+ *
+ * 그래서 분모로 **총 주식수(보통주+우선주)**를 받는다. 공시값이 없는 기업에서만 쓰고,
+ * 화면에는 "추정치" 표시를 붙여야 한다.
+ */
+export const estimateEps = (netIncomeControlling: Num, sharesTotal: Num): Num =>
+  safeDivide(netIncomeControlling, sharesTotal);
 
-export const bps = (equityControlling: Num, sharesOutstanding: Num): Num =>
-  safeDivide(equityControlling, sharesOutstanding);
+/**
+ * BPS = 지배주주지분 / 총 주식수
+ *
+ * EPS 와 같은 분모를 써야 PER 과 PBR 이 서로 일관된다.
+ * 보통주만으로 나누면 우선주가 있는 기업의 PBR 이 PER 과 다른 기준이 되어
+ * 두 지표를 나란히 놓고 볼 수 없다.
+ */
+export const bps = (equityControlling: Num, sharesTotal: Num): Num =>
+  safeDivide(equityControlling, sharesTotal);
 
 /**
  * PER = 주가 / EPS
+ *
+ * `epsValue` 는 공시된 기본주당이익을 넣는 게 원칙이다 (estimateEps 주석 참고).
  * EPS 가 0 이하면 null. 적자 기업의 음수 PER 은 해석이 불가능하고,
  * 차트에 그리면 축 스케일을 망가뜨린다.
  */

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   bps,
   debtRatio,
-  eps,
+  estimateEps,
   marketCap,
   netMargin,
   operatingMargin,
@@ -123,17 +123,52 @@ describe('debtRatio', () => {
   });
 });
 
-describe('eps / bps', () => {
-  it('EPS = 지배주주순이익 / 유통주식수', () => {
-    expect(eps(1_000_000, 100_000)).toBe(10);
+describe('estimateEps — 공시값이 없을 때만 쓰는 폴백', () => {
+  it('총 주식수로 나눈다', () => {
+    expect(estimateEps(1_000_000, 100_000)).toBe(10);
   });
 
   it('주식수가 없으면 null', () => {
-    expect(eps(1_000_000, null)).toBeNull();
+    expect(estimateEps(1_000_000, null)).toBeNull();
+  });
+
+  it('삼성전자 2023: 보통주로 나누면 공시값과 어긋난다', () => {
+    // 참가적 우선주가 이익을 나눠 갖기 때문에 보통주로만 나누면 과대계상된다.
+    // 이 테스트는 "왜 공시값을 써야 하는가"를 고정해 두기 위한 것이다.
+    const netIncomeControlling = 14_473_401_000_000;
+    const REPORTED_EPS = 2131; // ifrs-full_BasicEarningsLossPerShare
+
+    const wrongCommonOnly = estimateEps(netIncomeControlling, 5_969_782_550);
+    const withPreferred = estimateEps(netIncomeControlling, 6_792_669_250);
+
+    expect(Math.round(wrongCommonOnly as number)).toBe(2424);
+    expect(Math.round(withPreferred as number)).toBe(REPORTED_EPS);
+
+    // 보통주만 쓰면 13% 이상 과대 -> PER 이 그만큼 낮게 나온다
+    expect((wrongCommonOnly as number) / REPORTED_EPS).toBeGreaterThan(1.13);
+  });
+});
+
+describe('bps', () => {
+  it('BPS = 지배주주지분 / 총 주식수', () => {
+    expect(bps(1_000_000, 100_000)).toBe(10);
   });
 
   it('주식수 0 이면 null', () => {
     expect(bps(1_000_000, 0)).toBeNull();
+  });
+
+  it('EPS 와 같은 분모를 써서 PER·PBR 기준이 어긋나지 않는다', () => {
+    const netIncome = 14_473_401_000_000;
+    const equity = 353_233_775_000_000;
+    const sharesTotal = 6_792_669_250;
+    const price = 78_600;
+
+    const perValue = per(price, estimateEps(netIncome, sharesTotal));
+    const pbrValue = pbr(price, bps(equity, sharesTotal));
+
+    // 같은 분모를 쓰면 PER/PBR = (순이익/자본) 관계가 성립한다
+    expect((perValue as number) / (pbrValue as number)).toBeCloseTo(equity / netIncome, 6);
   });
 });
 
