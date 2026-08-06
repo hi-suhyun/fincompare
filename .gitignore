@@ -2,7 +2,9 @@ node_modules/
 dist/
 .env
 .env.local
-data/
 *.log
 .DS_Store
 apps/api/.env
+
+# SQLite 개발 DB. 'data/' 로 두면 apps/api/src/data(소스)까지 무시된다.
+apps/api/data/
