@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { DartClient } from '../adapters/dart/client.js';
 import type { SecClient } from '../adapters/sec/client.js';
 import type { FxClient } from '../adapters/fx/ecb.js';
+import type { PriceAdapter } from '../adapters/price/types.js';
 import type { Db } from '../db/client.js';
 import { buildSeries } from '../services/series.js';
 
@@ -51,7 +52,16 @@ const SeriesQuerySchema = z
     path: ['from'],
   });
 
-export function createSeriesRouter(db: Db, dart: DartClient, sec: SecClient, fx: FxClient): Router {
+export interface SeriesRouterDeps {
+  db: Db;
+  dart: DartClient;
+  sec: SecClient;
+  fx: FxClient;
+  krPrice: PriceAdapter | null;
+  usPrice: PriceAdapter | null;
+}
+
+export function createSeriesRouter(deps: SeriesRouterDeps): Router {
   const router = Router();
 
   router.get('/', (req, res, next) => {
@@ -69,7 +79,7 @@ export function createSeriesRouter(db: Db, dart: DartClient, sec: SecClient, fx:
     const metrics = [...new Set(parsed.data.metrics)];
 
     buildSeries(
-      { db, dart, sec, fx },
+      deps,
       {
         companyIds,
         metrics,

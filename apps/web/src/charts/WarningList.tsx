@@ -56,6 +56,10 @@ export function WarningList({ warnings, companies }: Props): React.ReactElement 
                 <span className="text-[var(--ink-muted)]"> · {metricLabel(warning.metricId)}</span>
                 {' — '}
                 {warning.detail ?? meta.title}
+                {/* 어느 해였는지는 설명 뒤에 붙인다. 연도만 있으면 무슨 문제인지 알 수 없다 */}
+                {warning.period !== undefined && (
+                  <span className="text-[var(--ink-muted)]"> ({warning.period}년)</span>
+                )}
               </span>
             </li>
           );

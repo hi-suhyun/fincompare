@@ -84,6 +84,8 @@ export interface SeriesWarning {
   metricId: MetricId;
   code: string;
   detail?: string;
+  /** 어느 시점의 문제인지. 설명(detail)과 별도로 둔다 */
+  period?: string;
 }
 
 export interface SeriesResponse {

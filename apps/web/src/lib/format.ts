@@ -7,11 +7,15 @@
 
 const JO = 1e12; // 조
 const EOK = 1e8; // 억
-const MAN = 1e4; // 만
 
 export const NO_DATA = '데이터 없음';
 
-/** 통화 축약. 부호를 유지한다 — 영업적자를 양수처럼 보이게 하면 안 된다 */
+/**
+ * 통화 축약. 부호를 유지한다 — 영업적자를 양수처럼 보이게 하면 안 된다.
+ *
+ * 억 미만은 축약하지 않는다. EPS 28,732원을 "3만"으로 줄이면 정밀도가 통째로 날아간다.
+ * 주당 지표는 원 단위 자릿수 자체가 정보다.
+ */
 export function formatCurrency(value: number | null, currency: 'KRW' | 'USD' = 'KRW'): string {
   if (value === null || !Number.isFinite(value)) return NO_DATA;
 
@@ -25,8 +29,7 @@ export function formatCurrency(value: number | null, currency: 'KRW' | 'USD' = '
   const abs = Math.abs(value);
   if (abs >= JO) return `${(value / JO).toFixed(abs >= 100 * JO ? 0 : 1)}조`;
   if (abs >= EOK) return `${(value / EOK).toFixed(abs >= 100 * EOK ? 0 : 1)}억`;
-  if (abs >= MAN) return `${(value / MAN).toFixed(0)}만`;
-  return value.toLocaleString('ko-KR');
+  return Math.round(value).toLocaleString('ko-KR');
 }
 
 /** 비율은 소수로 저장되어 있다. 표시할 때 %로 바꾼다 */
@@ -87,8 +90,7 @@ export function formatAxisTick(value: number, unit: string): string {
     case '주': {
       const abs = Math.abs(value);
       if (abs >= EOK) return `${(value / EOK).toFixed(0)}억`;
-      if (abs >= MAN) return `${(value / MAN).toFixed(0)}만`;
-      return String(value);
+      return Math.round(value).toLocaleString('ko-KR');
     }
     default:
       return String(value);

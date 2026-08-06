@@ -9,6 +9,10 @@ import { createSeriesRouter } from './routes/series.js';
 import { DartClient } from './adapters/dart/client.js';
 import { SecClient } from './adapters/sec/client.js';
 import { FxClient } from './adapters/fx/ecb.js';
+import { KrxPriceAdapter } from './adapters/price/krx.js';
+import { NaverPriceAdapter } from './adapters/price/naver.js';
+import { TiingoPriceAdapter } from './adapters/price/tiingo.js';
+import type { PriceAdapter } from './adapters/price/types.js';
 import { CacheLayer } from './core/cache.js';
 import { RequestQueue } from './core/queue.js';
 import { DEFAULT_LIMITS, RateLimiter } from './core/rateLimiter.js';
@@ -49,6 +53,42 @@ const fx = new FxClient({
   cache,
 });
 
+/**
+ * 주가 어댑터는 환경변수로 갈아끼운다.
+ * KRX 승인 전에는 네이버 폴백으로 개발하고, 승인되면 PRICE_PROVIDER_KR=krx 로 바꾼다.
+ */
+function buildKrPriceAdapter(): PriceAdapter | null {
+  const queue = new RequestQueue({
+    source: config.PRICE_PROVIDER_KR === 'krx' ? 'KRX' : 'NAVER',
+    limiter: new RateLimiter(
+      config.PRICE_PROVIDER_KR === 'krx' ? DEFAULT_LIMITS.KRX : DEFAULT_LIMITS.NAVER,
+    ),
+    concurrency: 2,
+  });
+
+  if (config.PRICE_PROVIDER_KR === 'krx') {
+    if (config.KRX_AUTH_KEY.trim() === '') return null;
+    return new KrxPriceAdapter({ authKey: config.KRX_AUTH_KEY, queue, cache });
+  }
+  return new NaverPriceAdapter({ queue, cache });
+}
+
+function buildUsPriceAdapter(): PriceAdapter | null {
+  if (config.TIINGO_API_KEY.trim() === '') return null;
+  return new TiingoPriceAdapter({
+    apiKey: config.TIINGO_API_KEY,
+    queue: new RequestQueue({
+      source: 'TIINGO',
+      limiter: new RateLimiter(DEFAULT_LIMITS.TIINGO),
+      concurrency: 1,
+    }),
+    cache,
+  });
+}
+
+const krPrice = buildKrPriceAdapter();
+const usPrice = buildUsPriceAdapter();
+
 const app = express();
 app.use(express.json());
 
@@ -79,7 +119,7 @@ app.get('/api/health', (_req, res, next) => {
 });
 
 app.use('/api/companies', createCompaniesRouter(handle.db));
-app.use('/api/series', createSeriesRouter(handle.db, dart, sec, fx));
+app.use('/api/series', createSeriesRouter({ db: handle.db, dart, sec, fx, krPrice, usPrice }));
 
 const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
   if (error instanceof SourceError) {

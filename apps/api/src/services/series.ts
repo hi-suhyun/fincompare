@@ -11,6 +11,7 @@ import {
   normalizeToBase,
   requiredBaseMetrics,
   reportingCurrency,
+  splitAdjustmentFactors,
   styleForIndex,
   type BaseMetricId,
   type Currency,
@@ -23,6 +24,7 @@ import type { SecClient } from '../adapters/sec/client.js';
 import { FxTable, type FxClient } from '../adapters/fx/ecb.js';
 import { convertValue, fiscalPeriodBounds } from './currency.js';
 import { ensureAnnualFinancials, loadCompanies, loadFacts } from './financials.js';
+import { ensureClosePrices, isSplitAdjustedSource, type PriceDeps } from './prices.js';
 
 /**
  * 차트 하나를 그리는 데 필요한 모든 것을 한 번에 준다.
@@ -81,7 +83,7 @@ export interface SeriesResponse {
   warnings: SeriesWarning[];
 }
 
-export interface SeriesDeps {
+export interface SeriesDeps extends PriceDeps {
   db: Db;
   dart: DartClient;
   sec: SecClient;
@@ -96,11 +98,32 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
   // ROE 는 기초자본이 필요하므로 요청 구간보다 1년 앞서 받아둔다
   const fetchFrom = request.fromYear - 1;
 
+  // 밸류에이션 지표를 요청했을 때만 주가를 받는다. 안 쓸 데이터를 위해 외부 호출을 하지 않는다.
+  const needsPrice = neededBase.has('closePrice');
+
   const fetchResults = await Promise.allSettled(
     companies.map((company) =>
       ensureAnnualFinancials(deps, company, fetchFrom, request.toYear),
     ),
   );
+
+  if (needsPrice) {
+    const priceResults = await Promise.allSettled(
+      companies.map((company) => ensureClosePrices(deps, company, request.fromYear, request.toYear)),
+    );
+    for (const [index, result] of priceResults.entries()) {
+      const company = companies[index];
+      if (company === undefined || result.status === 'rejected') continue;
+      for (const w of result.value) {
+        warnings.push({
+          companyId: w.companyId,
+          metricId: 'per',
+          code: 'PRICE_UNAVAILABLE',
+          detail: w.detail,
+        });
+      }
+    }
+  }
 
   for (const [index, result] of fetchResults.entries()) {
     const company = companies[index];
@@ -132,6 +155,8 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
 
   const facts = await loadFacts(deps.db, request.companyIds, fetchFrom, request.toYear);
   const periods = buildPeriodAxis(request.fromYear, request.toYear, 'FY');
+
+  if (needsPrice) applySplitAdjustment(deps, companies, facts, periods, warnings);
 
   // 정규화 모드에서는 환산하지 않는다. 성장률에 환율 변동이 섞이면
   // 기업 성과가 아니라 환율을 보게 된다.
@@ -182,7 +207,7 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
         const prevFacts = byYear?.get(year - 1);
         const result = deriveMetric(metricId, yearFacts, prevFacts);
         for (const code of result.warnings) {
-          warnings.push({ companyId: company.id, metricId, code, detail: period });
+          warnings.push({ companyId: company.id, metricId, code, period });
         }
         return result.value;
       });
@@ -251,6 +276,63 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
     provenance,
     warnings: dedupe(warnings),
   };
+}
+
+/**
+ * 수정주가와 공시 EPS 의 기준을 맞춘다 (제자리 수정).
+ *
+ * 주가 소스가 수정주가(액면분할 소급 조정)를 주는데 EPS·BPS 는 각 시점 공시값이다.
+ * 그대로 나누면 삼성전자 2017년 PER 이 0.17배로 나온다 (실제 약 8.5배).
+ *
+ * 조정 방향:
+ *   EPS       -> 계수로 나눈다 (분할 후 기준으로 낮춘다)
+ *   주식수    -> 계수를 곱한다 (분할 후 기준으로 늘린다)
+ * 이렇게 하면 BPS(자본/주식수)와 시가총액(주가×주식수)도 함께 맞는다.
+ *
+ * 미조정 주가를 주는 소스(KRX, Tiingo)에서는 아무것도 하지 않는다.
+ */
+function applySplitAdjustment(
+  deps: SeriesDeps,
+  companies: readonly { id: string; country: string; market: string; stockCode: string | null; ticker: string | null; fiscalYearEndMonth: number }[],
+  facts: Map<string, Map<number, Map<BaseMetricId, number | null>>>,
+  periods: readonly string[],
+  warnings: SeriesWarning[],
+): void {
+  for (const company of companies) {
+    if (!isSplitAdjustedSource(deps, company as never)) continue;
+
+    const byYear = facts.get(company.id);
+    if (byYear === undefined) continue;
+
+    const shares = periods.map((p) => byYear.get(Number(p))?.get('sharesOutstanding') ?? null);
+    const factors = splitAdjustmentFactors(periods, shares);
+    if (factors.every((f) => f === 1)) continue;
+
+    for (const [index, period] of periods.entries()) {
+      const factor = factors[index] ?? 1;
+      if (factor === 1) continue;
+
+      const metrics = byYear.get(Number(period));
+      if (metrics === undefined) continue;
+
+      const eps = metrics.get('eps');
+      if (eps != null) metrics.set('eps', eps / factor);
+
+      for (const shareMetric of ['sharesOutstanding', 'sharesTotal'] as const) {
+        const value = metrics.get(shareMetric);
+        if (value != null) metrics.set(shareMetric, value * factor);
+      }
+    }
+
+    warnings.push({
+      companyId: company.id,
+      metricId: 'per',
+      code: 'SHARE_COUNT_JUMP',
+      detail:
+        '주가가 수정주가라 액면분할 이전 구간의 EPS·주식수를 같은 기준으로 조정했습니다. ' +
+        '공시 원값과는 다릅니다.',
+    });
+  }
 }
 
 /**
@@ -332,12 +414,26 @@ async function applyCurrency(
   return target;
 }
 
-/** 같은 경고가 연도마다 반복되면 화면이 시끄러워진다. 지표·기업 단위로 합친다 */
+/**
+ * 같은 경고가 연도마다 반복되면 화면이 시끄러워진다. 지표·기업 단위로 합치되,
+ * 어느 연도들이었는지는 남긴다 — "2023" 하나만 보이면 다른 해는 괜찮은지 알 수 없다.
+ */
 function dedupe(warnings: readonly SeriesWarning[]): SeriesWarning[] {
   const seen = new Map<string, SeriesWarning>();
+  const periods = new Map<string, string[]>();
+
   for (const w of warnings) {
     const key = `${w.companyId}|${w.metricId}|${w.code}`;
     if (!seen.has(key)) seen.set(key, w);
+    if (w.period !== undefined) {
+      const list = periods.get(key);
+      if (list === undefined) periods.set(key, [w.period]);
+      else if (!list.includes(w.period)) list.push(w.period);
+    }
   }
-  return [...seen.values()];
+
+  return [...seen.entries()].map(([key, warning]) => {
+    const list = periods.get(key);
+    return list === undefined ? warning : { ...warning, period: list.sort().join(', ') };
+  });
 }
