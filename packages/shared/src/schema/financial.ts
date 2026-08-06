@@ -112,6 +112,13 @@ export const WarningCodeSchema = z.enum([
   'ROE_USED_ENDING_EQUITY',
   /** 적자라 PER 계산 불가 */
   'NEGATIVE_EPS',
+  /** 주가 데이터가 없어 밸류에이션 지표를 계산할 수 없음 */
+  'PRICE_UNAVAILABLE',
+  /**
+   * 주식수가 급변했다 — 액면분할·병합 가능성.
+   * 조정하지 않은 주당 지표(EPS·BPS)는 그 시점에서 불연속이 된다.
+   */
+  'SHARE_COUNT_JUMP',
   /** TTM 구성 분기 중 결측이 있어 계산 불가 */
   'TTM_INCOMPLETE',
   /** 결산월이 12월이 아니라 정렬 보정이 적용됨 */

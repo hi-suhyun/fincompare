@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { KIFRS_ACCOUNT_MAP } from './kifrs.js';
-import { resolveAll, resolveMetric } from './resolve.js';
+import { expandTaxonomyVariants, resolveAll, resolveMetric } from './resolve.js';
 import type { RawFact } from './types.js';
 import { USGAAP_ACCOUNT_MAP } from './usgaap.js';
 
@@ -71,6 +71,116 @@ describe('K-IFRS 매핑', () => {
     const r = resolveMetric(KIFRS_ACCOUNT_MAP, 'revenue', withNull);
     expect(r.value).toBe(777);
     expect(r.sourceTag).toBe('ifrs-full_RevenueFromSaleOfGoods');
+  });
+});
+
+describe('EPS 표기 두 갈래 — 통합 배분 vs 보통주·우선주 분리', () => {
+  it('삼성전자식: 통합 기본주당이익', () => {
+    const samsung: RawFact[] = [
+      {
+        tag: 'ifrs-full_BasicEarningsLossPerShare',
+        name: '기본주당이익(손실)',
+        statement: 'IS',
+        value: 2131,
+      },
+    ];
+    expect(resolveMetric(KIFRS_ACCOUNT_MAP, 'eps', samsung).value).toBe(2131);
+  });
+
+  it('현대차식: 표준계정코드 없이 보통주 EPS 를 집는다', () => {
+    // 현대차 2022 실제 응답 구조. account_id 가 '-표준계정코드 미사용-' 이라 계정명으로만 찾는다
+    const hyundai: RawFact[] = [
+      { tag: '-표준계정코드 미사용-', name: '보통주 기본주당이익', statement: 'IS', value: 28_521 },
+      { tag: '-표준계정코드 미사용-', name: '1우선주 기본주당이익', statement: 'IS', value: 28_207 },
+      { tag: '-표준계정코드 미사용-', name: '보통주 희석주당이익', statement: 'IS', value: 28_521 },
+    ];
+
+    const result = resolveMetric(KIFRS_ACCOUNT_MAP, 'eps', hyundai);
+    expect(result.value).toBe(28_521);
+    expect(result.usedNameFallback).toBe(true);
+  });
+
+  it('우선주 EPS 를 절대 집지 않는다 — PER 이 조용히 어긋난다', () => {
+    const onlyPreferred: RawFact[] = [
+      { tag: '-표준계정코드 미사용-', name: '1우선주 기본주당이익', statement: 'IS', value: 28_207 },
+      { tag: '-표준계정코드 미사용-', name: '우선주 기본주당이익', statement: 'IS', value: 28_207 },
+    ];
+    expect(resolveMetric(KIFRS_ACCOUNT_MAP, 'eps', onlyPreferred).value).toBeNull();
+  });
+
+  it('희석주당이익을 기본주당이익으로 착각하지 않는다', () => {
+    const dilutedOnly: RawFact[] = [
+      { tag: '-표준계정코드 미사용-', name: '보통주 희석주당이익', statement: 'IS', value: 999 },
+    ];
+    expect(resolveMetric(KIFRS_ACCOUNT_MAP, 'eps', dilutedOnly).value).toBeNull();
+  });
+
+  it("'연결당기순이익' 표기도 총 순이익으로 잡는다", () => {
+    const hyundai: RawFact[] = [
+      { tag: '-표준계정코드 미사용-', name: '연결당기순이익', statement: 'IS', value: 7_982_000_000_000 },
+    ];
+    expect(resolveMetric(KIFRS_ACCOUNT_MAP, 'netIncomeTotal', hyundai).value).toBe(
+      7_982_000_000_000,
+    );
+  });
+});
+
+describe('IFRS 택사노미 접두어 변형', () => {
+  it('ifrs-full_ <-> ifrs_ 를 양방향으로 확장한다', () => {
+    expect(expandTaxonomyVariants(['ifrs-full_Equity'])).toEqual([
+      'ifrs-full_Equity',
+      'ifrs_Equity',
+    ]);
+    expect(expandTaxonomyVariants(['ifrs_Equity'])).toEqual(['ifrs_Equity', 'ifrs-full_Equity']);
+  });
+
+  it('IFRS 태그가 아니면 건드리지 않는다', () => {
+    expect(expandTaxonomyVariants(['dart_OperatingIncomeLoss', 'NetIncomeLoss'])).toEqual([
+      'dart_OperatingIncomeLoss',
+      'NetIncomeLoss',
+    ]);
+  });
+
+  it('중복을 만들지 않는다', () => {
+    expect(expandTaxonomyVariants(['ifrs-full_Equity', 'ifrs_Equity'])).toHaveLength(2);
+  });
+
+  it('2018년 이전 보고서(ifrs_ 접두어)도 매핑된다', () => {
+    // DART 는 2018년까지 ifrs_, 2019년부터 ifrs-full_ 을 쓴다.
+    // 이걸 놓쳐서 2015~2018 구간의 netIncome·eps·equityControlling 이 통째로 비었었다.
+    const old2017: RawFact[] = [
+      {
+        tag: 'ifrs_ProfitLossAttributableToOwnersOfParent',
+        name: '지배기업의 소유주에게 귀속되는 당기순이익(손실)',
+        statement: 'IS',
+        value: 41_344_569_000_000,
+      },
+      { tag: 'ifrs_Equity', name: '자본총계', statement: 'BS', value: 214_491_428_000_000 },
+      {
+        tag: 'ifrs_EquityAttributableToOwnersOfParent',
+        name: '지배기업 소유주지분',
+        statement: 'BS',
+        value: 207_213_416_000_000,
+      },
+      {
+        tag: 'ifrs_BasicEarningsLossPerShare',
+        name: '기본주당이익(손실) (단위:원)',
+        statement: 'IS',
+        value: 5421,
+      },
+    ];
+
+    expect(resolveMetric(KIFRS_ACCOUNT_MAP, 'netIncome', old2017).value).toBe(41_344_569_000_000);
+    expect(resolveMetric(KIFRS_ACCOUNT_MAP, 'totalEquity', old2017).value).toBe(214_491_428_000_000);
+    expect(resolveMetric(KIFRS_ACCOUNT_MAP, 'equityControlling', old2017).value).toBe(
+      207_213_416_000_000,
+    );
+    expect(resolveMetric(KIFRS_ACCOUNT_MAP, 'eps', old2017).value).toBe(5421);
+  });
+
+  it('접두어가 확장돼도 실제 채택된 태그를 그대로 기록한다', () => {
+    const old: RawFact[] = [{ tag: 'ifrs_Assets', name: '자산총계', statement: 'BS', value: 100 }];
+    expect(resolveMetric(KIFRS_ACCOUNT_MAP, 'totalAssets', old).sourceTag).toBe('ifrs_Assets');
   });
 });
 

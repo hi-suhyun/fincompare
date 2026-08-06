@@ -36,7 +36,8 @@ export const KIFRS_ACCOUNT_MAP: AccountMap = {
 
   netIncomeTotal: {
     tags: ['ifrs-full_ProfitLoss'],
-    namePattern: /^당기순이익(\(손실\))?$/,
+    // 현대차처럼 표준계정코드를 쓰지 않고 '연결당기순이익'으로 적는 기업이 있다
+    namePattern: /^(연결)?당기순이익(\(손실\))?$/,
     statements: ['IS', 'CIS'],
   },
 
@@ -69,8 +70,15 @@ export const KIFRS_ACCOUNT_MAP: AccountMap = {
     // 공시된 기본주당이익을 그대로 쓴다. 직접 계산하면 참가적 우선주가 있는 기업에서 틀린다.
     // 삼성전자 2023: 공시 2,131원 vs 보통주로 나눈 계산값 2,424원.
     tags: ['ifrs-full_BasicEarningsLossPerShare'],
-    namePattern: /^기본주당이익(\(손실\))?$/,
+    //
+    // 표기가 기업마다 두 갈래다:
+    //   삼성전자  '기본주당이익(손실)'      2,131원   (보통주·우선주 통합 배분)
+    //   현대차    '보통주 기본주당이익'    28,521원   (보통주)
+    //            '1우선주 기본주당이익'   28,207원   (우선주 — 쓰면 안 된다)
+    //
+    // 우선주 EPS 를 집으면 PER 이 조용히 어긋난다. '우선주'가 들어간 계정은 배제한다.
+    namePattern: /^(?!.*우선주)(보통주\s*)?기본주당(순)?이익/,
     statements: ['IS', 'CIS'],
-    note: '공시값 사용. 직접 계산 금지',
+    note: '공시값 사용. 직접 계산 금지. 우선주 EPS 배제',
   },
 };

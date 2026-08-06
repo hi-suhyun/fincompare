@@ -4,6 +4,30 @@ import type { AccountMap, AccountRule, RawFact, ResolveResult } from './types.js
 const NOT_FOUND: ResolveResult = { value: null, sourceTag: null, usedNameFallback: false };
 
 /**
+ * IFRS 택사노미 접두어 변형을 자동으로 확장한다.
+ *
+ * DART 는 2018년 이전 보고서에 `ifrs_` 를, 2019년 이후에 `ifrs-full_` 을 쓴다.
+ *   2017  ifrs_ProfitLossAttributableToOwnersOfParent
+ *   2023  ifrs-full_ProfitLossAttributableToOwnersOfParent
+ *
+ * 매핑 테이블마다 두 개씩 나열하면 새 지표를 추가할 때 반드시 한쪽을 빠뜨린다.
+ * 실제로 netIncome·eps·equityControlling 이 2015~2018 구간에서 통째로 비었다.
+ * 규칙이 기계적이므로 여기서 한 번에 처리한다.
+ */
+export function expandTaxonomyVariants(tags: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const tag of tags) {
+    out.push(tag);
+    if (tag.startsWith('ifrs-full_')) {
+      out.push(`ifrs_${tag.slice('ifrs-full_'.length)}`);
+    } else if (tag.startsWith('ifrs_')) {
+      out.push(`ifrs-full_${tag.slice('ifrs_'.length)}`);
+    }
+  }
+  return [...new Set(out)];
+}
+
+/**
  * 매핑 규칙에 따라 원본 행들 중 하나를 골라낸다.
  *
  * 1. 태그 후보를 우선순위 순으로 훑어 첫 번째로 값이 있는 것을 채택
@@ -18,7 +42,7 @@ export function resolveAccount(rule: AccountRule, facts: readonly RawFact[]): Re
     ? facts.filter((f) => f.statement === undefined || rule.statements!.includes(f.statement))
     : facts;
 
-  for (const tag of rule.tags) {
+  for (const tag of expandTaxonomyVariants(rule.tags)) {
     const hit = candidates.find((f) => f.tag === tag && f.value !== null);
     if (hit) return { value: hit.value, sourceTag: tag, usedNameFallback: false };
   }
