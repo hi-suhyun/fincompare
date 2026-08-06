@@ -23,10 +23,15 @@ const BASE_URL = 'https://data-dbg.krx.co.kr/svc/apis/sto';
 
 const KrxRowSchema = z.object({
   BAS_DD: z.string(),
+  /** 종목코드 6자리 */
   ISU_CD: z.string(),
   ISU_NM: z.string().optional(),
-  /** 종가. 콤마가 섞여 온다 */
+  /** 종가. 미조정 실거래가다 (2017-12-28 삼성전자 = 2,548,000) */
   TDD_CLSPRC: z.string(),
+  /** 시가총액. 우리가 주가×주식수로 계산할 필요 없이 그대로 온다 */
+  MKTCAP: z.string().optional(),
+  /** 상장주식수 */
+  LIST_SHRS: z.string().optional(),
 });
 
 const KrxResponseSchema = z.object({
@@ -47,6 +52,15 @@ const ENDPOINT_BY_MARKET = {
 } as const;
 
 export type KrxMarket = keyof typeof ENDPOINT_BY_MARKET;
+
+const DAY_MS = 86_400_000;
+
+/**
+ * 직전 거래일을 찾을 때 최대로 거슬러 올라갈 일수.
+ * 설·추석 연휴가 가장 길어야 5일 남짓이라 10일이면 충분하다.
+ * 캐시가 있으니 한 번 찾은 날짜는 다시 호출하지 않는다.
+ */
+const MAX_LOOKBACK_DAYS = 10;
 
 export class KrxPriceAdapter implements PriceAdapter {
   readonly source = 'KRX' as const;
@@ -89,18 +103,44 @@ export class KrxPriceAdapter implements PriceAdapter {
     // 날짜별 호출이라 요청한 날짜만큼 부른다. 한 번의 응답에 전 종목이 들어 있어
     // 여러 기업을 비교할 때도 캐시가 그대로 재사용된다.
     for (const date of dates) {
-      const basDd = date.replace(/-/g, '');
-      const rows = await this.fetchDay(endpoint, basDd);
-      const hit = rows.find((r) => r.ISU_CD === stockCode || r.ISU_CD.endsWith(stockCode));
-      if (hit === undefined) continue;
-
-      const close = Number(hit.TDD_CLSPRC.replace(/,/g, ''));
-      if (!Number.isFinite(close) || close <= 0) continue;
-
-      out.push({ date, close, currency: 'KRW' });
+      const hit = await this.findOnOrBefore(endpoint, date, stockCode);
+      if (hit === null) continue;
+      out.push({ date, close: hit, currency: 'KRW' });
     }
 
     return out;
+  }
+
+  /**
+   * 해당 날짜에 거래가 없으면 직전 거래일로 거슬러 올라간다.
+   *
+   * 회계연도 기말은 대개 12월 31일인데 그날은 늘 휴장이다.
+   * 게다가 연말 마지막 거래일이 해마다 다르다 — 2016년은 12/29, 2015·2024년은 12/30.
+   * 하루만 빼는 고정 규칙으로는 맞출 수 없다.
+   */
+  private async findOnOrBefore(
+    endpoint: string,
+    date: string,
+    stockCode: string,
+  ): Promise<number | null> {
+    let cursor = Date.parse(`${date}T00:00:00Z`);
+
+    for (let attempt = 0; attempt < MAX_LOOKBACK_DAYS; attempt++) {
+      const basDd = new Date(cursor).toISOString().slice(0, 10).replace(/-/g, '');
+      const rows = await this.fetchDay(endpoint, basDd);
+
+      if (rows.length > 0) {
+        const hit = rows.find((r) => r.ISU_CD === stockCode || r.ISU_CD.endsWith(stockCode));
+        if (hit === undefined) return null; // 거래는 있었는데 그 종목이 없다 = 미상장
+
+        const close = Number(hit.TDD_CLSPRC.replace(/,/g, ''));
+        return Number.isFinite(close) && close > 0 ? close : null;
+      }
+
+      cursor -= DAY_MS;
+    }
+
+    return null;
   }
 
   private async fetchDay(

@@ -65,7 +65,13 @@ export async function ensureClosePrices(
   const identifier = identifierFor(adapter, company);
   if (identifier === null) return warnings;
 
-  // 이미 받아둔 연도는 건너뛴다
+  /**
+   * 이미 받아둔 연도는 건너뛴다 — 단 **같은 소스로 받은 것만**.
+   *
+   * 소스가 바뀌면 기준이 달라진다. 네이버는 수정주가, KRX 는 미조정 실거래가다.
+   * 2017년 삼성전자가 한쪽은 50,960원, 다른 쪽은 2,548,000원이다.
+   * 섞이면 액면분할 조정이 어긋나 PER 이 조용히 틀린다.
+   */
   const existing = await deps.db
     .selectDistinct({ alignedYear: financialFacts.alignedYear })
     .from(financialFacts)
@@ -73,6 +79,7 @@ export async function ensureClosePrices(
       and(
         eq(financialFacts.companyId, company.id),
         eq(financialFacts.metricId, 'closePrice'),
+        eq(financialFacts.source, adapter.source),
         gte(financialFacts.alignedYear, fromYear),
         lte(financialFacts.alignedYear, toYear),
       ),
