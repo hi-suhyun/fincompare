@@ -1,5 +1,8 @@
 # Phase 0 — 프로젝트 구조 제안
 
+> ⚠️ 판단이 갈리는 지점에서는 [`03-user-context.md`](./03-user-context.md)가 이 문서보다 우선한다.
+> 실사용자는 개발자 본인이 아니라 30년 경력 투자자인 할아버지다.
+
 ## 1. 스택 결정
 
 | 영역 | 선택 | 이유 |
@@ -142,6 +145,17 @@ companies (
 )
 -- 인덱스: name_ko, name_en, ticker, stock_code (검색 자동완성)
 
+-- 검색 별칭. "엔비디아"로 NVDA 를 찾으려면 이게 필요하다.
+-- SEC company_tickers.json 에는 영문명만 있어서 한글로는 검색이 안 된다.
+company_aliases (
+  company_id  TEXT,
+  alias       TEXT,               -- '엔비디아', '엔디비아'(흔한 오타), 'nvidia'
+  chosung     TEXT,               -- 'ㅅㅅㅈㅈ' 초성 검색용. 한글 별칭만
+  alias_type  TEXT,               -- KO_NAME | KO_COMMON | EN_SHORT | TICKER
+  PRIMARY KEY (company_id, alias)
+)
+-- 인덱스: alias, chosung
+
 financial_facts (
   company_id      TEXT,
   metric_id       TEXT,               -- BASE 지표만 저장. 파생지표는 저장 안 함
@@ -180,8 +194,9 @@ JS `number`는 2^53(≈9×10^15)까지 정확하니 당장은 괜찮지만, 원 
 ## 4. 핵심 API 계약
 
 ```
-GET /api/companies/search?q=삼성&limit=10
-→ [{ id, market, country, nameKo, nameEn, ticker, isSupported, fiscalYearEndMonth }]
+GET /api/companies/search?q=엔비디아&limit=10     # 한글 별칭·초성·티커·종목코드 모두 매칭
+→ [{ id, market, country, nameKo, nameEn, ticker, isSupported, fiscalYearEndMonth,
+     matchedOn: 'KO_COMMON' }]
 
 GET /api/series
     ?companies=KR:005930,US:INTC,US:NVDA
@@ -196,13 +211,22 @@ GET /api/series
     series: {
       operatingMargin: {
         unit: '%', label: '영업이익률',
+        formula: '영업이익 / 매출액',            # 툴팁에 계산 근거로 노출
+        basis: 'K-IFRS 연결 · 지배주주 기준',
         data: { 'KR:005930': [0.13, null, ...], 'US:NVDA': [...] }
       },
       per: { unit: '배', label: 'PER', data: {...} }
     },
-    warnings: [{ companyId, metricId, code: 'OPERATING_INCOME_NOT_TAGGED' }]
+    provenance: {                               # 전문가가 숫자를 검증할 수 있게
+      'KR:005930': { source: 'DART', consolidation: 'CFS', fetchedAt: '...' },
+      'US:NVDA':   { source: 'SEC',  consolidation: 'CFS', fetchedAt: '...' }
+    },
+    warnings: [{ companyId, metricId, code: 'METRIC_NOT_TAGGED' }]
   }
 ```
+
+`formula` / `basis` / `provenance` 는 장식이 아니다. 실사용자가 30년 경력 투자자라
+숫자의 출처와 기준을 못 밝히면 신뢰를 못 얻는다 (`03-user-context.md` 2.3).
 
 한 번의 호출로 전 차트가 그려진다. `periods`가 공유 배열이라 프론트에서 X축 정렬이
 자동으로 맞고, `null`이 그대로 내려와서 선이 끊긴다.
@@ -251,10 +275,27 @@ VITE_API_BASE_URL=http://localhost:3001
 
 ## 7. 커밋 계획 (기능 단위)
 
-- `docs: Phase 0 데이터 소스 조사 및 설계` ← 지금
-- `chore: pnpm 모노레포 + 툴체인 설정`
-- `feat(shared): 표준 스키마 및 지표 계산식 + 테스트`
-- `feat(shared): 결산월 정렬 규칙 + 테스트`
+- ✅ `docs: Phase 0 데이터 소스 조사 및 설계`
+- ✅ `chore: pnpm 모노레포 및 툴체인 설정`
+- ✅ `feat(shared): 표준 스키마, 지표 계산식, 기간 정렬, 계정과목 매핑`
+- `docs: 사용자 맥락 반영 및 Phase 순서 조정`
 - `feat(api): HTTP 큐·백오프·캐시 레이어`
+- `feat(api): DB 스키마 및 마이그레이션`
 - `feat(api): DART 어댑터 + 기업 마스터 시딩`
+- `feat(api): 한글 별칭·초성 검색`
 - ... (Phase별로 이어감)
+
+## 8. Phase 순서 (조정됨)
+
+| Phase | 내용 | 상태 |
+|---|---|---|
+| 0 | 데이터 소스 조사, 계정과목 매핑 설계 | ✅ 완료 |
+| 1 | 백엔드: DART 연동, 기업 마스터 시딩, 정규화 스키마, 캐싱 | 진행 중 (DART 키 대기) |
+| 2 | 프론트: 기업 검색·선택 UI + 단일 지표 라인 차트 | |
+| 3 | 미국(SEC) 통합 + USD/KRW 환산 + 계정과목 매핑 | |
+| 4 | **다중 지표(small multiples), 정규화, 내보내기, URL 공유** | 순서 앞당김 |
+| 5 | **주가 연동 및 PER/PBR** | 순서 미룸 |
+
+Phase 3 종료 시점에 "삼성전자 vs Intel vs NVIDIA 영업이익률 10년 추이"가 동작한다.
+그때 할아버지께 드리고 피드백을 받은 뒤 4~5를 진행한다.
+순서 변경 사유는 `03-user-context.md` 3장 참고.
