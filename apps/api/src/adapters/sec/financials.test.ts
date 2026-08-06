@@ -102,6 +102,22 @@ describe('SEC 응답 파싱 — Apple (9월 결산)', () => {
     // FY2024 기본주당이익 6.11$
     expect(valueOf(result, 'eps', 2024)).toBeCloseTo(6.11, 2);
   });
+
+  it('액면분할 이전 EPS 는 재작성값이 아니라 최초 제출값을 쓴다', () => {
+    // AAPL 은 2020년 8월에 4:1 액면분할을 했다. FY2019 EPS 가 보고서마다 다르다:
+    //   2019-10-31 최초 제출  $11.97  (분할 전 기준)
+    //   2020-10-30 재작성      $2.99  (분할 반영)
+    //
+    // 주가 소스(Tiingo close, KRX)가 미조정 실거래가이므로 EPS 도 그 시점 기준이어야
+    // PER 이 맞는다. 재작성값을 쓰면 2019년 PER 이 18배가 아니라 73배로 나온다.
+    const concept = readConcept(aapl, 'us-gaap', 'EarningsPerShareBasic');
+    const fy2019 = (concept?.units['USD/shares'] ?? []).filter(
+      (r) => r.start?.startsWith('2018-09') === true && r.end.startsWith('2019-09'),
+    );
+
+    expect(fy2019.map((r) => r.val).sort((a, b) => a - b)).toEqual([2.99, 2.99, 11.97]);
+    expect(valueOf(result, 'eps', 2019)).toBeCloseTo(11.97, 2);
+  });
 });
 
 describe('SEC 응답 파싱 — NVIDIA (1월 결산)', () => {
