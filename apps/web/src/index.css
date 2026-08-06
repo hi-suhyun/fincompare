@@ -1,0 +1,64 @@
+@import 'tailwindcss';
+
+/**
+ * 실사용자가 고령이다. 이해력이 아니라 시력 기준으로 잡는다.
+ * (docs/03-user-context.md 2.5)
+ *
+ *  - 본문 기본 17px. Tailwind 기본 16px 보다 한 단계 위
+ *  - 명도 대비 WCAG AA(4.5:1) 이상
+ *  - 클릭 타깃 최소 44px
+ */
+@theme {
+  --font-sans:
+    'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo',
+    'Malgun Gothic', system-ui, sans-serif;
+
+  --text-base: 1.0625rem; /* 17px */
+  --text-lg: 1.1875rem; /* 19px */
+  --text-xl: 1.375rem; /* 22px */
+  --text-2xl: 1.75rem; /* 28px */
+}
+
+:root {
+  color-scheme: light;
+  --ink: #16181d;
+  --ink-muted: #565c67;
+  --line: #d8dce3;
+  --surface: #ffffff;
+  --surface-sunken: #f5f6f8;
+}
+
+html {
+  font-size: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--surface-sunken);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 숫자는 자릿수가 흔들리면 읽기 어렵다. 표·차트 라벨에 고정폭 숫자를 쓴다 */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 키보드 포커스를 확실히 보이게. 마우스 클릭 시에는 나오지 않는다 */
+:focus-visible {
+  outline: 3px solid #0072b2;
+  outline-offset: 2px;
+}
+
+/* 클릭 타깃 최소 크기 */
+button,
+[role='button'] {
+  min-height: 44px;
+}
+
+button.compact {
+  min-height: 36px;
+}
