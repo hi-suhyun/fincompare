@@ -6,6 +6,7 @@ import { CompanyPicker } from './features/company-picker/CompanyPicker.js';
 import { MetricPicker } from './features/metric-picker/MetricPicker.js';
 import { PeriodPicker } from './features/period-picker/PeriodPicker.js';
 import { Presets } from './features/Presets.js';
+import { CurrencyToggle } from './features/CurrencyToggle.js';
 import { useUrlState } from './hooks/useUrlState.js';
 import { ApiError, fetchSeries, type CompanySearchResult } from './lib/api.js';
 
@@ -18,7 +19,15 @@ export function App(): React.ReactElement {
   const hasCompanies = state.companyIds.length > 0;
 
   const { data, isPending, isFetching, error } = useQuery({
-    queryKey: ['series', state.companyIds, state.metrics, state.fromYear, state.toYear, state.normalize],
+    queryKey: [
+      'series',
+      state.companyIds,
+      state.metrics,
+      state.fromYear,
+      state.toYear,
+      state.normalize,
+      state.currency,
+    ],
     queryFn: () =>
       fetchSeries({
         companyIds: state.companyIds,
@@ -26,6 +35,7 @@ export function App(): React.ReactElement {
         fromYear: state.fromYear,
         toYear: state.toYear,
         normalize: state.normalize,
+        currency: state.currency,
       }),
     enabled: hasCompanies,
   });
@@ -37,6 +47,12 @@ export function App(): React.ReactElement {
     }
     return map;
   }, [pickedNames, data]);
+
+  // 국내·해외가 섞였을 때만 통화 토글이 의미를 가진다
+  const isMixedMarket = useMemo(() => {
+    const countries = new Set((data?.companies ?? []).map((c) => c.country));
+    return countries.size > 1;
+  }, [data]);
 
   const addCompany = useCallback(
     (company: CompanySearchResult) => {
@@ -82,15 +98,23 @@ export function App(): React.ReactElement {
                 normalize={state.normalize}
                 onChange={update}
               />
-              <label className="flex items-center gap-2.5">
-                <input
-                  type="checkbox"
-                  checked={logScale}
-                  onChange={(e) => setLogScale(e.target.checked)}
-                  className="h-5 w-5 accent-[#0072B2]"
+              <div className="flex flex-col items-start gap-4">
+                <CurrencyToggle
+                  value={state.currency}
+                  onChange={(currency) => update({ currency })}
+                  isMixed={isMixedMarket}
+                  disabled={state.normalize}
                 />
-                <span className="font-medium">로그 축</span>
-              </label>
+                <label className="flex items-center gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={logScale}
+                    onChange={(e) => setLogScale(e.target.checked)}
+                    className="h-5 w-5 accent-[#0072B2]"
+                  />
+                  <span className="font-medium">로그 축</span>
+                </label>
+              </div>
             </div>
           </>
         )}

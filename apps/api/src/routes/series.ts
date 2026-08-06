@@ -2,6 +2,8 @@ import { MAX_COMPANIES, MAX_METRICS, MetricIdSchema } from '@fincompare/shared';
 import { Router } from 'express';
 import { z } from 'zod';
 import type { DartClient } from '../adapters/dart/client.js';
+import type { SecClient } from '../adapters/sec/client.js';
+import type { FxClient } from '../adapters/fx/ecb.js';
 import type { Db } from '../db/client.js';
 import { buildSeries } from '../services/series.js';
 
@@ -41,13 +43,15 @@ const SeriesQuerySchema = z
       .enum(['true', 'false'])
       .default('false')
       .transform((v) => v === 'true'),
+    // native = 각 기업의 보고 통화 그대로. 국내만 비교할 때는 환산이 불필요하다.
+    currency: z.enum(['KRW', 'USD', 'native']).default('native'),
   })
   .refine((v) => v.from <= v.to, {
     message: '시작 연도가 종료 연도보다 늦습니다',
     path: ['from'],
   });
 
-export function createSeriesRouter(db: Db, dart: DartClient): Router {
+export function createSeriesRouter(db: Db, dart: DartClient, sec: SecClient, fx: FxClient): Router {
   const router = Router();
 
   router.get('/', (req, res, next) => {
@@ -65,13 +69,14 @@ export function createSeriesRouter(db: Db, dart: DartClient): Router {
     const metrics = [...new Set(parsed.data.metrics)];
 
     buildSeries(
-      { db, dart },
+      { db, dart, sec, fx },
       {
         companyIds,
         metrics,
         fromYear: parsed.data.from,
         toYear: parsed.data.to,
         normalize: parsed.data.normalize,
+        currency: parsed.data.currency,
       },
     )
       .then((result) => {

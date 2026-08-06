@@ -10,13 +10,18 @@ import {
   isDerivedMetric,
   normalizeToBase,
   requiredBaseMetrics,
+  reportingCurrency,
   styleForIndex,
   type BaseMetricId,
+  type Currency,
   type MetricId,
   type SeriesWarning,
 } from '@fincompare/shared';
 import type { Db } from '../db/client.js';
 import type { DartClient } from '../adapters/dart/client.js';
+import type { SecClient } from '../adapters/sec/client.js';
+import { FxTable, type FxClient } from '../adapters/fx/ecb.js';
+import { convertValue, fiscalPeriodBounds } from './currency.js';
 import { ensureAnnualFinancials, loadCompanies, loadFacts } from './financials.js';
 
 /**
@@ -33,10 +38,17 @@ export interface SeriesRequest {
   toYear: number;
   /** 시작 시점을 100 으로 정규화. 규모가 다른 기업 비교에 쓴다 */
   normalize: boolean;
+  /**
+   * 표시 통화. 'native' 면 각 기업의 보고 통화를 그대로 쓴다.
+   * 정규화 모드에서는 환산하지 않는다 — 성장률에 환율 변동이 섞이면
+   * 기업 성과가 아니라 환율을 보게 된다.
+   */
+  currency: 'KRW' | 'USD' | 'native';
 }
 
 export interface SeriesCompany {
   id: string;
+  country: string;
   nameKo: string | null;
   nameEn: string | null;
   market: string;
@@ -62,6 +74,8 @@ export interface SeriesMetric {
 export interface SeriesResponse {
   companies: SeriesCompany[];
   periods: string[];
+  /** 화면에 표시되는 통화. 'native' 면 기업별 보고 통화 그대로다 */
+  displayCurrency: 'KRW' | 'USD' | 'native';
   series: SeriesMetric[];
   provenance: Record<string, { source: string; consolidation: string; basis: string }>;
   warnings: SeriesWarning[];
@@ -70,6 +84,8 @@ export interface SeriesResponse {
 export interface SeriesDeps {
   db: Db;
   dart: DartClient;
+  sec: SecClient;
+  fx: FxClient;
 }
 
 export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Promise<SeriesResponse> {
@@ -117,11 +133,25 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
   const facts = await loadFacts(deps.db, request.companyIds, fetchFrom, request.toYear);
   const periods = buildPeriodAxis(request.fromYear, request.toYear, 'FY');
 
+  // 정규화 모드에서는 환산하지 않는다. 성장률에 환율 변동이 섞이면
+  // 기업 성과가 아니라 환율을 보게 된다.
+  const targetCurrency = request.normalize ? 'native' : request.currency;
+  const displayCurrency = await applyCurrency(
+    deps,
+    companies,
+    facts,
+    fetchFrom,
+    request.toYear,
+    targetCurrency,
+    warnings,
+  );
+
   const seriesCompanies: SeriesCompany[] = companies.map((company, index) => {
     const style = styleForIndex(index);
     const badge = fiscalYearEndBadge(company.fiscalYearEndMonth);
     return {
       id: company.id,
+      country: company.country,
       nameKo: company.nameKo,
       nameEn: company.nameEn,
       market: company.market,
@@ -213,7 +243,93 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
     };
   }
 
-  return { companies: seriesCompanies, periods, series, provenance, warnings: dedupe(warnings) };
+  return {
+    companies: seriesCompanies,
+    periods,
+    displayCurrency,
+    series,
+    provenance,
+    warnings: dedupe(warnings),
+  };
+}
+
+/**
+ * BASE 값을 표시 통화로 환산한다 (제자리 수정).
+ *
+ * 파생지표를 계산하기 전에 해야 한다. BPS 같은 지표는 통화 항목과 주식수를 나눈 값이라,
+ * 파생 이후에 환산하면 어느 쪽을 바꿔야 할지 알 수 없다.
+ *
+ * 환율은 방향당 한 번만 받아온다 (USD->KRW 또는 KRW->USD).
+ * 반환값은 화면에 표시할 통화 — 환산이 아예 없었으면 'native'.
+ */
+async function applyCurrency(
+  deps: SeriesDeps,
+  companies: readonly { id: string; country: string; fiscalYearEndMonth: number }[],
+  facts: Map<string, Map<number, Map<BaseMetricId, number | null>>>,
+  fromYear: number,
+  toYear: number,
+  target: 'KRW' | 'USD' | 'native',
+  warnings: SeriesWarning[],
+): Promise<'KRW' | 'USD' | 'native'> {
+  if (target === 'native') return 'native';
+
+  const needed = new Set<Currency>();
+  for (const company of companies) {
+    const from = reportingCurrency(company.country as 'KR' | 'US');
+    if (from !== target) needed.add(from);
+  }
+  if (needed.size === 0) return target;
+
+  // ECB 는 영업일만 고시한다. 구간 앞뒤로 여유를 둬야 기말이 휴일일 때도 채워진다.
+  const rangeStart = `${fromYear - 1}-01-01`;
+  const rangeEnd = `${toYear}-12-31`;
+
+  const tables = new Map<Currency, FxTable>();
+  for (const from of needed) {
+    try {
+      const rates = await deps.fx.fetchRange(from, target, rangeStart, rangeEnd);
+      tables.set(from, new FxTable(rates));
+    } catch {
+      tables.set(from, new FxTable([]));
+    }
+  }
+
+  for (const company of companies) {
+    const from = reportingCurrency(company.country as 'KR' | 'US');
+    if (from === target) continue;
+
+    const table = tables.get(from);
+    const byYear = facts.get(company.id);
+    if (table === undefined || byYear === undefined) continue;
+
+    if (table.isEmpty) {
+      warnings.push({
+        companyId: company.id,
+        metricId: 'revenue',
+        code: 'METRIC_NOT_TAGGED',
+        detail: `환율(${from}->${target})을 받지 못해 이 기업은 환산하지 못했습니다`,
+      });
+      continue;
+    }
+
+    for (const [year, metrics] of byYear) {
+      const bounds = fiscalPeriodBounds(year, company.fiscalYearEndMonth);
+      for (const [metricId, value] of metrics) {
+        metrics.set(
+          metricId,
+          convertValue(value, metricId, {
+            from,
+            to: target,
+            table,
+            periodStart: bounds.start,
+            periodEnd: bounds.end,
+          }),
+        );
+      }
+    }
+  }
+
+  return target;
 }
 
 /** 같은 경고가 연도마다 반복되면 화면이 시끄러워진다. 지표·기업 단위로 합친다 */

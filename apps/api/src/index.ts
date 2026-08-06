@@ -7,6 +7,8 @@ import { companies } from './db/schema.js';
 import { createCompaniesRouter } from './routes/companies.js';
 import { createSeriesRouter } from './routes/series.js';
 import { DartClient } from './adapters/dart/client.js';
+import { SecClient } from './adapters/sec/client.js';
+import { FxClient } from './adapters/fx/ecb.js';
 import { CacheLayer } from './core/cache.js';
 import { RequestQueue } from './core/queue.js';
 import { DEFAULT_LIMITS, RateLimiter } from './core/rateLimiter.js';
@@ -15,12 +17,36 @@ import { SqliteCacheStore } from './db/cacheStore.js';
 const config = loadConfig();
 const handle = createDb(config.DATABASE_URL);
 
-const dartLimiter = new RateLimiter({ ...DEFAULT_LIMITS.DART });
+const cache = new CacheLayer(new SqliteCacheStore(handle.db));
+
 const dart = new DartClient({
   apiKey: config.DART_API_KEY,
   // 사용자 요청 처리라 시딩만큼 공격적으로 보내지 않는다
-  queue: new RequestQueue({ source: 'DART', limiter: dartLimiter, concurrency: 4 }),
-  cache: new CacheLayer(new SqliteCacheStore(handle.db)),
+  queue: new RequestQueue({
+    source: 'DART',
+    limiter: new RateLimiter({ ...DEFAULT_LIMITS.DART }),
+    concurrency: 4,
+  }),
+  cache,
+});
+
+const sec = new SecClient({
+  userAgent: config.SEC_USER_AGENT,
+  queue: new RequestQueue({
+    source: 'SEC',
+    limiter: new RateLimiter({ ...DEFAULT_LIMITS.SEC }),
+    concurrency: 4,
+  }),
+  cache,
+});
+
+const fx = new FxClient({
+  queue: new RequestQueue({
+    source: 'ECB',
+    limiter: new RateLimiter({ ...DEFAULT_LIMITS.ECB }),
+    concurrency: 2,
+  }),
+  cache,
 });
 
 const app = express();
@@ -53,7 +79,7 @@ app.get('/api/health', (_req, res, next) => {
 });
 
 app.use('/api/companies', createCompaniesRouter(handle.db));
-app.use('/api/series', createSeriesRouter(handle.db, dart));
+app.use('/api/series', createSeriesRouter(handle.db, dart, sec, fx));
 
 const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
   if (error instanceof SourceError) {

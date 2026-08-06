@@ -8,12 +8,16 @@ import { useCallback, useEffect, useState } from 'react';
  * 새로고침해도 선택이 유지되는 게 우선이고, 공유는 그 부산물이다.
  */
 
+export type DisplayCurrency = 'KRW' | 'USD' | 'native';
+
 export interface AppState {
   companyIds: string[];
   metrics: MetricId[];
   fromYear: number;
   toYear: number;
   normalize: boolean;
+  /** 표시 통화. native = 각 기업의 보고 통화 그대로 */
+  currency: DisplayCurrency;
 }
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -26,6 +30,8 @@ export const DEFAULT_STATE: AppState = {
   fromYear: 2016,
   toYear: CURRENT_YEAR - 1,
   normalize: false,
+  // 국내 기업만 볼 때는 환산이 불필요하다. 해외를 섞으면 화면에서 바꾸면 된다.
+  currency: 'native',
 };
 
 function clampYear(value: number, fallback: number): number {
@@ -60,7 +66,12 @@ function parseState(search: string): AppState {
     fromYear: Math.min(from, to),
     toYear: Math.max(from, to),
     normalize: params.get('n') === '1',
+    currency: parseCurrency(params.get('cur')),
   };
+}
+
+function parseCurrency(raw: string | null): DisplayCurrency {
+  return raw === 'KRW' || raw === 'USD' ? raw : 'native';
 }
 
 function toSearch(state: AppState): string {
@@ -70,6 +81,7 @@ function toSearch(state: AppState): string {
   params.set('from', String(state.fromYear));
   params.set('to', String(state.toYear));
   if (state.normalize) params.set('n', '1');
+  if (state.currency !== 'native') params.set('cur', state.currency);
   return params.toString();
 }
 

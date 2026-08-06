@@ -8,6 +8,8 @@ import {
 import { and, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import type { z } from 'zod';
 import type { DartClient } from '../adapters/dart/client.js';
+import type { SecClient } from '../adapters/sec/client.js';
+import { convertSecFacts } from '../adapters/sec/financials.js';
 import { convertFinancialRows, extractShares } from '../adapters/dart/financials.js';
 import {
   DartFinancialResponseSchema,
@@ -30,11 +32,13 @@ import { companies, financialFacts } from '../db/schema.js';
 export interface FinancialsDeps {
   db: Db;
   dart: DartClient;
+  sec: SecClient;
 }
 
 export interface CompanyRef {
   id: string;
   corpCode: string | null;
+  cik: string | null;
   fiscalYearEndMonth: number;
   country: string;
   nameKo: string | null;
@@ -75,6 +79,59 @@ async function existingYears(db: Db, companyId: string, from: number, to: number
  * 섞어 놓고 말하지 않으면 숫자가 왜 튀는지 알 수 없다.
  */
 export async function ensureAnnualFinancials(
+  deps: FinancialsDeps,
+  company: CompanyRef,
+  fromYear: number,
+  toYear: number,
+): Promise<FetchWarning[]> {
+  if (company.country === 'US') return ensureUsFinancials(deps, company, fromYear, toYear);
+  return ensureKoreanFinancials(deps, company, fromYear, toYear);
+}
+
+/**
+ * 미국 기업. SEC companyfacts 는 한 번 받으면 전 기간이 들어 있으므로
+ * 연도별로 나눠 부를 필요가 없다 — 기업당 1회 호출이 끝이다.
+ */
+async function ensureUsFinancials(
+  deps: FinancialsDeps,
+  company: CompanyRef,
+  fromYear: number,
+  toYear: number,
+): Promise<FetchWarning[]> {
+  const warnings: FetchWarning[] = [];
+  if (company.cik === null) return warnings;
+
+  const have = await existingYears(deps.db, company.id, fromYear, toYear);
+  const missingCount = toYear - fromYear + 1 - have.size;
+  if (missingCount <= 0) return warnings;
+
+  const facts = await deps.sec.fetchCompanyFacts(company.cik);
+  if (facts === null) {
+    warnings.push({
+      companyId: company.id,
+      metricId: null,
+      code: 'METRIC_NOT_TAGGED',
+      detail: 'SEC 에서 이 기업의 재무데이터를 찾지 못했습니다',
+    });
+    return warnings;
+  }
+
+  const converted = convertSecFacts(facts, {
+    companyId: company.id,
+    fromYear,
+    toYear,
+    fiscalYearEndMonth: company.fiscalYearEndMonth,
+  });
+
+  for (const metricId of converted.missing) {
+    warnings.push({ companyId: company.id, metricId, code: 'METRIC_NOT_TAGGED' });
+  }
+
+  await storeFacts(deps.db, converted.points);
+  return warnings;
+}
+
+async function ensureKoreanFinancials(
   deps: FinancialsDeps,
   company: CompanyRef,
   fromYear: number,
@@ -328,6 +385,7 @@ export async function loadCompanies(db: Db, ids: readonly string[]): Promise<Com
     .select({
       id: companies.id,
       corpCode: companies.corpCode,
+      cik: companies.cik,
       fiscalYearEndMonth: companies.fiscalYearEndMonth,
       country: companies.country,
       nameKo: companies.nameKo,

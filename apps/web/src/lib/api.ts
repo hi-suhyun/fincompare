@@ -58,6 +58,7 @@ export function searchCompanies(query: string, limit = 8): Promise<{ results: Co
 
 export interface SeriesCompany {
   id: string;
+  country: string;
   nameKo: string | null;
   nameEn: string | null;
   market: string;
@@ -88,6 +89,7 @@ export interface SeriesWarning {
 export interface SeriesResponse {
   companies: SeriesCompany[];
   periods: string[];
+  displayCurrency: 'KRW' | 'USD' | 'native';
   series: SeriesMetric[];
   provenance: Record<string, { source: string; consolidation: string; basis: string }>;
   warnings: SeriesWarning[];
@@ -99,6 +101,7 @@ export interface SeriesParams {
   fromYear: number;
   toYear: number;
   normalize: boolean;
+  currency: 'KRW' | 'USD' | 'native';
 }
 
 export function fetchSeries(params: SeriesParams): Promise<SeriesResponse> {
@@ -108,6 +111,7 @@ export function fetchSeries(params: SeriesParams): Promise<SeriesResponse> {
     from: String(params.fromYear),
     to: String(params.toYear),
     normalize: String(params.normalize),
+    currency: params.currency,
   });
 }
 

@@ -10,6 +10,7 @@ afterEach(cleanup);
 const COMPANIES: SeriesCompany[] = [
   {
     id: 'KR:005930',
+    country: 'KR',
     nameKo: '삼성전자',
     nameEn: 'SAMSUNG',
     market: 'KOSPI',
@@ -21,6 +22,7 @@ const COMPANIES: SeriesCompany[] = [
   },
   {
     id: 'US:NVDA',
+    country: 'US',
     nameKo: '엔비디아',
     nameEn: 'NVIDIA',
     market: 'NASDAQ',
