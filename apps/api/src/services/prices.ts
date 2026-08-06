@@ -86,11 +86,49 @@ export async function ensureClosePrices(
     );
   const have = new Set(existing.map((r) => r.alignedYear));
 
+  /**
+   * 기말일은 **재무데이터가 저장한 periodEnd 를 그대로 쓴다.**
+   *
+   * 회계연도 라벨로 월말을 계산하면 정렬 연도가 어긋난다.
+   * NVDA(1월 결산)는 FY2024 기말이 2024-01-31 인데 정렬 연도는 2023 이다.
+   * 라벨 기준으로 날짜를 만들면 2024년 자리에 넣으려던 주가가 2023년에 저장되고,
+   * 2024년은 영영 비어 매번 다시 받으려 한다.
+   *
+   * 재무데이터의 periodEnd 를 쓰면 정렬이 자동으로 맞고,
+   * AAPL 처럼 52/53주 회계연도를 쓰는 기업의 실제 기말일(2024-09-28)도 정확해진다.
+   */
+  const periodEnds = await deps.db
+    .selectDistinct({
+      alignedYear: financialFacts.alignedYear,
+      periodEnd: financialFacts.periodEnd,
+    })
+    .from(financialFacts)
+    .where(
+      and(
+        eq(financialFacts.companyId, company.id),
+        eq(financialFacts.periodType, 'FY'),
+        eq(financialFacts.metricId, 'revenue'),
+        gte(financialFacts.alignedYear, fromYear),
+        lte(financialFacts.alignedYear, toYear),
+      ),
+    );
+
   const targets: Array<{ year: number; date: string }> = [];
-  for (let year = fromYear; year <= toYear; year++) {
-    if (have.has(year)) continue;
-    targets.push({ year, date: fiscalPeriodBounds(year, company.fiscalYearEndMonth).end });
+  for (const row of periodEnds) {
+    if (have.has(row.alignedYear)) continue;
+    targets.push({ year: row.alignedYear, date: row.periodEnd });
   }
+
+  // 재무데이터가 없는 연도는 결산월로 추정한다. 주가만 있어도 아쉬우니 시도는 한다.
+  const covered = new Set(periodEnds.map((r) => r.alignedYear));
+  for (let year = fromYear; year <= toYear; year++) {
+    if (have.has(year) || covered.has(year)) continue;
+    const bounds = fiscalPeriodBounds(year, company.fiscalYearEndMonth);
+    // 결산월 보정으로 정렬 연도가 밀리는 기업은 추정 자체가 어긋나므로 건너뛴다
+    if (alignPeriod(bounds.end, 'FY').alignedYear !== year) continue;
+    targets.push({ year, date: bounds.end });
+  }
+
   if (targets.length === 0) return warnings;
 
   let points;
@@ -118,7 +156,6 @@ export async function ensureClosePrices(
     const point = byDate.get(target.date);
     if (point === undefined) continue;
 
-    const aligned = alignPeriod(target.date, 'FY');
     facts.push({
       companyId: company.id,
       metricId: 'closePrice' as BaseMetricId,
@@ -127,8 +164,9 @@ export async function ensureClosePrices(
       periodEnd: target.date,
       fiscalYear: target.year,
       fiscalQuarter: null,
-      alignedYear: aligned.alignedYear,
-      alignedQuarter: aligned.alignedQuarter,
+      // target.year 는 이미 재무데이터의 정렬 연도다. 다시 계산하면 어긋난다.
+      alignedYear: target.year,
+      alignedQuarter: null,
       value: point.close,
       currency: point.currency,
       consolidation: 'CFS',
