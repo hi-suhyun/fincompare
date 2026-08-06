@@ -130,7 +130,14 @@ export const SeriesWarningSchema = z.object({
   companyId: z.string(),
   metricId: MetricIdSchema,
   code: WarningCodeSchema,
+  /** 사람이 읽는 설명. 없으면 화면이 code 에 맞는 기본 문구를 쓴다 */
   detail: z.string().optional(),
+  /**
+   * 어느 시점의 문제인지. detail 과 섞으면 안 된다 —
+   * 연도만 detail 에 넣었더니 화면에 "SK하이닉스 · PER — 2023" 이라고만 떠서
+   * 무슨 문제인지 알 수 없었다.
+   */
+  period: z.string().optional(),
 });
 export type SeriesWarning = z.infer<typeof SeriesWarningSchema>;
 

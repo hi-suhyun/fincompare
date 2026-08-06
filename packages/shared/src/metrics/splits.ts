@@ -81,6 +81,74 @@ export function detectSplits(
   return events;
 }
 
+/**
+ * 실무에서 쓰이는 액면분할 비율.
+ *
+ * 주식수 비율에서 그대로 계수를 뽑으면 안 된다. 분할 전후 연말 주식수에는
+ * 자사주 취득·소각 같은 다른 변동이 섞여 있어서 삼성전자 50:1 분할이 46.5배로 잡힌다.
+ * 7% 오차가 PER 에 그대로 실린다.
+ *
+ * 실제 분할은 깔끔한 비율로만 이뤄지므로 가장 가까운 표준 비율로 스냅한다.
+ */
+const STANDARD_SPLIT_RATIOS = [2, 3, 4, 5, 6, 8, 10, 20, 25, 50, 100] as const;
+
+/** 스냅을 허용할 최대 상대 오차. 이보다 멀면 분할로 보지 않는다 */
+const SNAP_TOLERANCE = 0.15;
+
+export function snapToStandardRatio(ratio: number): number | null {
+  const magnitude = ratio > 1 ? ratio : 1 / ratio;
+
+  let best: number | null = null;
+  let bestError = Number.POSITIVE_INFINITY;
+  for (const candidate of STANDARD_SPLIT_RATIOS) {
+    const error = Math.abs(magnitude - candidate) / candidate;
+    if (error < bestError) {
+      bestError = error;
+      best = candidate;
+    }
+  }
+
+  if (best === null || bestError > SNAP_TOLERANCE) return null;
+  return ratio > 1 ? best : 1 / best;
+}
+
+/**
+ * 기간별 액면분할 조정 계수.
+ *
+ * 왜 필요한가: 주가는 수정주가(분할 소급 조정)로 오는데 EPS·BPS 는 각 시점 공시값이다.
+ * 삼성전자 2017년으로 PER 을 계산하면
+ *   수정주가 50,960 / 미공시조정 EPS 299,868 = 0.17배   (실제 약 8.5배)
+ * 가 나온다. 두 값의 기준을 맞춰야 한다.
+ *
+ * 반환값은 각 기간의 주당 지표에 **나눌** 계수다.
+ * 2018년에 50:1 분할이 있었다면 2017년 이전은 50, 2018년 이후는 1 이 된다.
+ */
+export function splitAdjustmentFactors(
+  periods: readonly string[],
+  shares: readonly (number | null)[],
+  issuedCapital?: readonly (number | null)[],
+): number[] {
+  const events = detectSplits(periods, shares, issuedCapital);
+
+  const factors = periods.map(() => 1);
+  if (events.length === 0) return factors;
+
+  for (const event of events) {
+    const ratio = snapToStandardRatio(event.ratio);
+    if (ratio === null) continue;
+
+    const index = periods.indexOf(event.period);
+    if (index <= 0) continue;
+
+    // 분할 이전 구간의 주당 지표를 분할 후 기준으로 끌어내린다
+    for (let i = 0; i < index; i++) {
+      factors[i] = (factors[i] ?? 1) * ratio;
+    }
+  }
+
+  return factors;
+}
+
 /** 사용자에게 보여줄 문구 */
 export function describeSplit(event: SplitEvent): string {
   if (event.kind === 'SPLIT') {
