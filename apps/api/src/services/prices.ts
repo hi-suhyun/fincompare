@@ -52,12 +52,15 @@ export async function ensureClosePrices(
   const adapter = adapterFor(deps, company);
 
   if (adapter === null) {
+    // 구현 세부(환경변수 이름)가 아니라 사용자가 알아야 할 이유를 적는다.
+    // 미국 주가는 무료 API 가 전부 재배포·표시를 금지해서 의도적으로 뺀 것이다
+    // (docs/00-data-sources.md 3.4). 재무지표는 SEC 로 정상 제공된다.
     warnings.push({
       companyId: company.id,
       detail:
         company.country === 'US'
-          ? '미국 주가 소스가 설정되지 않았습니다 (TIINGO_API_KEY)'
-          : '국내 주가 소스가 설정되지 않았습니다',
+          ? '미국 기업은 주가 연동을 하지 않아 밸류에이션 지표가 없습니다. 재무지표는 정상 제공됩니다'
+          : '국내 주가 소스가 설정되지 않았습니다 (KRX_AUTH_KEY)',
     });
     return warnings;
   }

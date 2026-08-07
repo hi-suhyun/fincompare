@@ -35,8 +35,7 @@ export function describeMissingKeys(config: Config): string[] {
   if (config.KRX_AUTH_KEY === '' && config.PRICE_PROVIDER_KR === 'krx') {
     missing.push('KRX_AUTH_KEY (국내 주가)');
   }
-  if (config.TIINGO_API_KEY === '' && config.PRICE_PROVIDER_US === 'tiingo') {
-    missing.push('TIINGO_API_KEY (미국 주가)');
-  }
+  // 미국 주가는 의도적으로 비워 둔다 (무료 티어가 재배포를 금지한다).
+  // 설정 누락이 아니라 설계 결정이므로 "빠진 키" 목록에 넣지 않는다.
   return missing;
 }

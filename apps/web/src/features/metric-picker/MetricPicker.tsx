@@ -3,6 +3,8 @@ import { MAX_METRICS, METRIC_FORMULA, METRIC_META, type MetricId } from '@fincom
 interface Props {
   selected: readonly MetricId[];
   onChange: (metrics: MetricId[]) => void;
+  /** 미국 기업이 선택되어 있는지. 밸류에이션 안내를 그때만 띄운다 */
+  hasUsCompanies: boolean;
 }
 
 /**
@@ -21,10 +23,16 @@ const GROUPS: ReadonlyArray<{ title: string; metrics: readonly MetricId[] }> = [
   { title: '밸류에이션', metrics: ['per', 'pbr', 'eps', 'bps'] },
 ];
 
-/** 주가가 없으면 계산할 수 없는 지표. Phase 5 까지는 빈 차트가 된다 */
+/**
+ * 주가가 있어야 계산되는 지표.
+ *
+ * 국내는 KRX 공식 데이터로 다 나온다. 미국은 무료 주가 API 가 전부
+ * 재배포·표시를 금지해서 주가 연동을 하지 않는다 (docs/00-data-sources.md 3.4).
+ * 그래서 "쓸 수 없는 지표"가 아니라 "미국 기업만 비는 지표"다.
+ */
 const NEEDS_PRICE: ReadonlySet<MetricId> = new Set(['per', 'pbr', 'marketCap']);
 
-export function MetricPicker({ selected, onChange }: Props): React.ReactElement {
+export function MetricPicker({ selected, onChange, hasUsCompanies }: Props): React.ReactElement {
   const isFull = selected.length >= MAX_METRICS;
 
   const toggle = (metric: MetricId): void => {
@@ -53,7 +61,8 @@ export function MetricPicker({ selected, onChange }: Props): React.ReactElement 
           {group.metrics.map((metric) => {
             const active = selected.includes(metric);
             const disabled = !active && isFull;
-            const needsPrice = NEEDS_PRICE.has(metric);
+            // 미국 기업을 안 골랐으면 전부 정상 계산되므로 표시하지 않는다
+            const partial = hasUsCompanies && NEEDS_PRICE.has(metric);
 
             return (
               <button
@@ -64,7 +73,7 @@ export function MetricPicker({ selected, onChange }: Props): React.ReactElement 
                 aria-pressed={active}
                 // 툴팁은 개념 설명이 아니라 계산 근거다
                 title={`${METRIC_META[metric].label} = ${METRIC_FORMULA[metric]}${
-                  needsPrice ? '\n주가 연동 전이라 아직 값이 나오지 않습니다' : ''
+                  partial ? '\n미국 기업은 주가 연동을 하지 않아 값이 비어 있습니다' : ''
                 }`}
                 className={`compact rounded-full border-2 px-3.5 py-1.5 font-medium transition-colors
                   disabled:cursor-not-allowed disabled:opacity-40
@@ -75,12 +84,12 @@ export function MetricPicker({ selected, onChange }: Props): React.ReactElement 
                   }`}
               >
                 {METRIC_META[metric].label}
-                {needsPrice && (
+                {partial && (
                   <span
-                    aria-label="주가 데이터 필요"
+                    aria-label="미국 기업은 값이 비어 있음"
                     className={`ml-1.5 text-sm ${active ? 'text-white/80' : 'text-[var(--ink-muted)]'}`}
                   >
-                    ⏳
+                    ◐
                   </span>
                 )}
               </button>
@@ -89,9 +98,13 @@ export function MetricPicker({ selected, onChange }: Props): React.ReactElement 
         </div>
       ))}
 
-      <p className="text-sm text-[var(--ink-muted)]">
-        ⏳ 표시된 지표는 주가 연동(Phase 5) 후에 값이 나옵니다.
-      </p>
+      {hasUsCompanies && (
+        <p className="text-sm text-[var(--ink-muted)]">
+          ◐ 표시된 지표는 <strong className="font-medium">국내 기업만</strong> 값이 나옵니다.
+          미국 기업은 주가 데이터를 쓰지 않습니다 — 무료 주가 API 가 데이터를 다른 사람에게
+          보여주는 것을 약관으로 금지하기 때문입니다. 재무지표는 미국도 정상 제공됩니다.
+        </p>
+      )}
     </fieldset>
   );
 }

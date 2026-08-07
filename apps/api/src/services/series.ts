@@ -234,13 +234,26 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
     };
   });
 
-  // 주당 지표를 요청했으면 액면분할 불연속을 찾아 알린다.
-  // 조정 없이 그리면 삼성전자 2018년에 EPS 가 98% 증발한 것처럼 보인다.
-  const wantsPerShare = request.metrics.some((m) => PER_SHARE_METRICS.has(m));
-  if (wantsPerShare) {
+  // 액면분할 불연속을 알린다. 조정 없이 그리면 삼성전자 2018년에
+  // EPS 가 98% 증발한 것처럼 보인다.
+  //
+  // 단 **실제로 값이 그려지는 지표에만** 붙인다. 미국 기업은 주가를 쓰지 않아
+  // PER 이 전부 비는데, 빈 차트에 "불연속" 경고를 띄우면 소음일 뿐이다.
+  // 경고가 많으면 진짜 중요한 것을 놓친다.
+  const drawnPerShareMetric = series.find(
+    (s) =>
+      PER_SHARE_METRICS.has(s.metricId) &&
+      Object.values(s.data).some((values) => values.some((v) => v !== null)),
+  );
+
+  if (drawnPerShareMetric !== undefined) {
     for (const company of companies) {
       const byYear = facts.get(company.id);
       if (byYear === undefined) continue;
+
+      // 그 기업의 값이 하나도 없으면 그 기업에는 알릴 것이 없다
+      const companyHasValues = (drawnPerShareMetric.data[company.id] ?? []).some((v) => v !== null);
+      if (!companyHasValues) continue;
 
       const shareSeries = periods.map(
         (p) => byYear.get(Number(p))?.get('sharesOutstanding') ?? null,
@@ -248,7 +261,7 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
       for (const event of detectSplits(periods, shareSeries)) {
         warnings.push({
           companyId: company.id,
-          metricId: request.metrics.find((m) => PER_SHARE_METRICS.has(m)) ?? 'eps',
+          metricId: drawnPerShareMetric.metricId,
           code: 'SHARE_COUNT_JUMP',
           detail: describeSplit(event),
         });

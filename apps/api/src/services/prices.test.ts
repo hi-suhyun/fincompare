@@ -161,8 +161,10 @@ describe('ensureClosePrices — 정렬 연도', () => {
       2024,
     );
 
+    // 환경변수 이름이 아니라 사용자가 알아야 할 이유를 담는다
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]?.detail).toContain('TIINGO_API_KEY');
+    expect(warnings[0]?.detail).toContain('밸류에이션');
+    expect(warnings[0]?.detail).toContain('재무지표는 정상');
   });
 });
 

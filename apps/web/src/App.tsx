@@ -48,11 +48,13 @@ export function App(): React.ReactElement {
     return map;
   }, [pickedNames, data]);
 
+  const countries = useMemo(
+    () => new Set((data?.companies ?? []).map((c) => c.country)),
+    [data],
+  );
   // 국내·해외가 섞였을 때만 통화 토글이 의미를 가진다
-  const isMixedMarket = useMemo(() => {
-    const countries = new Set((data?.companies ?? []).map((c) => c.country));
-    return countries.size > 1;
-  }, [data]);
+  const isMixedMarket = countries.size > 1;
+  const hasUsCompanies = countries.has('US');
 
   const addCompany = useCallback(
     (company: CompanySearchResult) => {
@@ -89,7 +91,11 @@ export function App(): React.ReactElement {
         {hasCompanies && (
           <>
             <hr className="border-[var(--line)]" />
-            <MetricPicker selected={state.metrics} onChange={(metrics) => update({ metrics })} />
+            <MetricPicker
+              selected={state.metrics}
+              onChange={(metrics) => update({ metrics })}
+              hasUsCompanies={hasUsCompanies}
+            />
             <hr className="border-[var(--line)]" />
             <div className="flex flex-wrap items-start justify-between gap-4">
               <PeriodPicker
@@ -139,7 +145,9 @@ export function App(): React.ReactElement {
       )}
 
       <footer className="text-sm text-[var(--ink-muted)]">
-        재무데이터 출처: 금융감독원 전자공시시스템(DART). 각 연도 사업보고서 공시값 기준.
+        재무데이터: 금융감독원 DART(국내) · SEC EDGAR(미국). 각 연도 사업보고서 공시값 기준.
+        <br />
+        주가: 한국거래소(KRX) 일별매매정보, 액면분할 미조정 실거래 종가. 환율: ECB.
         <br />
         투자 판단의 근거로 쓰기 전에 원문 공시를 확인하세요.
       </footer>

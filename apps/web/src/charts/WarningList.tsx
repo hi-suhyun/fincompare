@@ -18,7 +18,7 @@ const WARNING_TEXT: Record<string, { title: string; tone: 'info' | 'caution' }> 
   FELL_BACK_TO_SEPARATE: { title: '연결재무제표가 없어 별도재무제표를 썼습니다', tone: 'caution' },
   ROE_USED_ENDING_EQUITY: { title: '기초자본이 없어 기말자본으로 ROE를 계산했습니다', tone: 'info' },
   NEGATIVE_EPS: { title: '적자 구간이라 PER을 계산하지 않았습니다', tone: 'info' },
-  PRICE_UNAVAILABLE: { title: '주가 데이터가 아직 없습니다 (Phase 5 예정)', tone: 'info' },
+  PRICE_UNAVAILABLE: { title: '주가 데이터가 없어 밸류에이션을 계산하지 못했습니다', tone: 'info' },
   SHARE_COUNT_JUMP: { title: '액면분할·병합 구간입니다', tone: 'caution' },
   TTM_INCOMPLETE: { title: '분기 데이터가 부족해 TTM을 계산하지 않았습니다', tone: 'info' },
   FISCAL_YEAR_SHIFTED: { title: '결산월이 달라 기간을 보정했습니다', tone: 'info' },
