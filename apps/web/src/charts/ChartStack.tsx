@@ -1,4 +1,6 @@
 import { chartHeight } from '@fincompare/shared';
+import { useRef } from 'react';
+import { ExportButtons } from '../features/export/ExportButtons.js';
 import type { SeriesResponse } from '../lib/api.js';
 import { HoverSyncProvider } from './hoverSync.js';
 import { MetricChart } from './MetricChart.js';
@@ -20,25 +22,34 @@ interface Props {
  */
 export function ChartStack({ data, logScale }: Props): React.ReactElement {
   const height = chartHeight(data.series.length);
+  const captureRef = useRef<HTMLDivElement>(null);
 
   return (
     <HoverSyncProvider>
       <div className="flex flex-col gap-3">
-        <SharedLegend companies={data.companies} provenance={data.provenance} />
-        <ReadoutPanel companies={data.companies} metrics={data.series} periods={data.periods} />
+        <ExportButtons data={data} captureRef={captureRef} />
 
-        <div className="flex flex-col gap-3">
-          {data.series.map((metric, index) => (
-            <MetricChart
-              key={metric.metricId}
-              metric={metric}
-              companies={data.companies}
-              periods={data.periods}
-              height={height}
-              showXAxisLabels={index === data.series.length - 1}
-              logScale={logScale}
-            />
-          ))}
+        {/*
+          이미지로 담는 범위. 범례·값 표·차트까지 넣고 경고 목록은 뺀다 —
+          경고는 화면에서 읽는 안내이지 차트의 일부가 아니다.
+        */}
+        <div ref={captureRef} className="flex flex-col gap-3 bg-[var(--surface-sunken)]">
+          <SharedLegend companies={data.companies} provenance={data.provenance} />
+          <ReadoutPanel companies={data.companies} metrics={data.series} periods={data.periods} />
+
+          <div className="flex flex-col gap-3">
+            {data.series.map((metric, index) => (
+              <MetricChart
+                key={metric.metricId}
+                metric={metric}
+                companies={data.companies}
+                periods={data.periods}
+                height={height}
+                showXAxisLabels={index === data.series.length - 1}
+                logScale={logScale}
+              />
+            ))}
+          </div>
         </div>
 
         <WarningList warnings={data.warnings} companies={data.companies} />
