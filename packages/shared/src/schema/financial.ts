@@ -152,7 +152,7 @@ export const METRIC_META: Record<MetricId, { label: string; unit: string; kind: 
   equityControlling: { label: '지배주주지분', unit: '통화', kind: 'absolute' },
   sharesOutstanding: { label: '유통주식수(보통주)', unit: '주', kind: 'absolute' },
   sharesTotal: { label: '유통주식수(보통주+우선주)', unit: '주', kind: 'absolute' },
-  closePrice: { label: '종가', unit: '통화', kind: 'valuation' },
+  closePrice: { label: '주가', unit: '통화', kind: 'valuation' },
   operatingMargin: { label: '영업이익률', unit: '%', kind: 'ratio' },
   netMargin: { label: '순이익률', unit: '%', kind: 'ratio' },
   roe: { label: 'ROE', unit: '%', kind: 'ratio' },

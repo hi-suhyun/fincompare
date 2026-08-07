@@ -160,7 +160,7 @@ export const METRIC_FORMULA: Record<MetricId, string> = {
   sharesOutstanding: '보통주 유통주식수 (자기주식 제외)',
   sharesTotal: '보통주 + 우선주 유통주식수',
   eps: '공시 기본주당이익',
-  closePrice: '기말 종가',
+  closePrice: '회계연도 기말 종가 (그 해 평균이 아니다)',
   operatingMargin: '영업이익 / 매출액',
   netMargin: '지배주주순이익 / 매출액',
   roe: '지배주주순이익 / 평균 지배주주지분',

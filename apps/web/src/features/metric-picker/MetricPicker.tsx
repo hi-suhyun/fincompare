@@ -20,7 +20,7 @@ const GROUPS: ReadonlyArray<{ title: string; metrics: readonly MetricId[] }> = [
     metrics: ['revenue', 'operatingIncome', 'netIncome', 'totalAssets', 'totalLiabilities'],
   },
   { title: '비율', metrics: ['operatingMargin', 'netMargin', 'roe', 'debtRatio'] },
-  { title: '밸류에이션', metrics: ['per', 'pbr', 'eps', 'bps'] },
+  { title: '밸류에이션', metrics: ['closePrice', 'per', 'pbr', 'eps', 'bps'] },
 ];
 
 /**
@@ -30,7 +30,7 @@ const GROUPS: ReadonlyArray<{ title: string; metrics: readonly MetricId[] }> = [
  * 재배포·표시를 금지해서 주가 연동을 하지 않는다 (docs/00-data-sources.md 3.4).
  * 그래서 "쓸 수 없는 지표"가 아니라 "미국 기업만 비는 지표"다.
  */
-const NEEDS_PRICE: ReadonlySet<MetricId> = new Set(['per', 'pbr', 'marketCap']);
+const NEEDS_PRICE: ReadonlySet<MetricId> = new Set(['closePrice', 'per', 'pbr', 'marketCap']);
 
 export function MetricPicker({ selected, onChange, hasUsCompanies }: Props): React.ReactElement {
   const isFull = selected.length >= MAX_METRICS;
