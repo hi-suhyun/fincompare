@@ -20,7 +20,7 @@ export function SharedLegend({ companies, provenance }: Props): React.ReactEleme
       {companies.map((company) => {
         const source = provenance[company.id];
         return (
-          <span key={company.id} className="flex items-center gap-2">
+          <span key={company.id} className="flex items-center gap-2 whitespace-nowrap">
             <svg width="34" height="12" aria-hidden className="shrink-0">
               <line
                 x1="1"
@@ -35,14 +35,17 @@ export function SharedLegend({ companies, provenance }: Props): React.ReactEleme
             <span className="font-medium">{company.nameKo ?? company.id}</span>
             <span className="tabular text-sm text-[var(--ink-muted)]">{company.ticker}</span>
             {company.badges.map((badge) => (
-              <span key={badge} className="rounded bg-[#fff4e0] px-1.5 py-0.5 text-sm text-[#8a5a00]">
+              <span
+                key={badge}
+                className="shrink-0 whitespace-nowrap rounded bg-[#fff4e0] px-1.5 py-0.5 text-sm text-[#8a5a00]"
+              >
                 {badge}
               </span>
             ))}
             {source !== undefined && (
               // 전문가는 숫자의 출처와 기준을 따진다. 연결/별도가 섞이면 값이 달라진다.
               <span
-                className="rounded border border-[var(--line)] px-1.5 py-0.5 text-sm text-[var(--ink-muted)]"
+                className="shrink-0 whitespace-nowrap rounded border border-[var(--line)] px-1.5 py-0.5 text-sm text-[var(--ink-muted)]"
                 title={`출처: ${source.source} · ${source.basis}`}
               >
                 {source.consolidation}

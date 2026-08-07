@@ -53,15 +53,25 @@ export function ExportButtons({ data, captureRef }: Props): React.ReactElement {
 
     setBusy('png');
     setError(null);
+
+    // 캡처용 레이아웃으로 잠시 바꾼다 (index.css 의 [data-exporting] 규칙).
+    // sticky 패널이 차트를 덮고, 스크롤 컨테이너가 잘려 찍히는 것을 막는다.
+    node.setAttribute('data-exporting', '');
+
     try {
+      // 폰트가 아직 안 왔으면 글자가 대체 폰트로 찍힌다
+      await document.fonts.ready;
+
       const dataUrl = await withTimeout(
         toPng(node, {
           // 투명 배경으로 저장하면 어두운 곳에 붙였을 때 글씨가 안 보인다
           backgroundColor: '#ffffff',
           // 화면 그대로면 흐릿하다. 인쇄하거나 확대해도 읽히게 2배로 뜬다
           pixelRatio: 2,
-          // 스티키 패널이 겹쳐 찍히지 않게 여백을 준다
-          style: { padding: '16px' },
+          // 보이는 만큼이 아니라 내용 전체를 담는다.
+          // 값 표가 화면보다 넓으면 scrollWidth 로 잡아야 오른쪽 열이 안 잘린다.
+          width: node.scrollWidth,
+          height: node.scrollHeight,
         }),
         PNG_TIMEOUT_MS,
       );
@@ -75,6 +85,7 @@ export function ExportButtons({ data, captureRef }: Props): React.ReactElement {
           : '이미지로 저장하지 못했습니다. CSV 로 내려받아 보세요.',
       );
     } finally {
+      node.removeAttribute('data-exporting');
       setBusy(null);
     }
   };

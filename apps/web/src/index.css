@@ -62,3 +62,25 @@ button,
 button.compact {
   min-height: 36px;
 }
+
+/**
+ * 이미지 내보내기 중에만 적용된다.
+ *
+ * 화면용 레이아웃을 그대로 캡처하면 깨진다:
+ *  - sticky 요소가 엉뚱한 위치에 그려져 아래 차트를 덮는다
+ *  - overflow 스크롤 컨테이너는 보이는 부분만 찍히고 나머지가 잘린다
+ *  - 반투명 배경이 뒤 내용과 겹쳐 흐려진다
+ *
+ * 캡처 직전에 data-exporting 을 붙였다가 끝나면 뗀다.
+ */
+[data-exporting] .readout-panel {
+  position: static !important;
+  overflow: visible !important;
+  backdrop-filter: none !important;
+  background: #ffffff !important;
+}
+
+[data-exporting] {
+  padding: 16px;
+}
+

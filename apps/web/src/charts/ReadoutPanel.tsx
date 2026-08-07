@@ -27,8 +27,10 @@ export function ReadoutPanel({ companies, metrics, periods }: Props): React.Reac
 
   return (
     <div
-      className="sticky top-0 z-10 overflow-x-auto rounded-xl border border-[var(--line)] bg-white/95
-                 px-4 py-3 backdrop-blur"
+      // readout-panel 클래스는 이미지 내보내기에서 sticky·스크롤을 풀기 위한 표식이다
+      // (index.css 의 [data-exporting] 규칙). 화면에서는 아무 영향이 없다.
+      className="readout-panel sticky top-0 z-10 overflow-x-auto rounded-xl border
+                 border-[var(--line)] bg-white/95 px-4 py-3 backdrop-blur"
       aria-live="polite"
       aria-atomic="true"
     >
