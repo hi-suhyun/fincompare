@@ -4,9 +4,15 @@ interface Props {
   fromYear: number;
   toYear: number;
   normalize: boolean;
+  overlay: boolean;
   /** 선택된 기업들의 국가. "전체" 가 어디까지 갈 수 있는지를 이걸로 정한다 */
   countries: readonly Country[];
-  onChange: (patch: { fromYear?: number; toYear?: number; normalize?: boolean }) => void;
+  onChange: (patch: {
+    fromYear?: number;
+    toYear?: number;
+    normalize?: boolean;
+    overlay?: boolean;
+  }) => void;
 }
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -22,6 +28,7 @@ export function PeriodPicker({
   fromYear,
   toYear,
   normalize,
+  overlay,
   countries,
   onChange,
 }: Props): React.ReactElement {
@@ -124,6 +131,30 @@ export function PeriodPicker({
           <span className="font-medium">성장률로 비교</span>
           <span className="block text-sm text-[var(--ink-muted)]">
             시작 시점을 100으로 맞춥니다. 규모가 다른 기업을 나란히 볼 때 씁니다.
+          </span>
+        </span>
+      </label>
+
+      <label className="flex items-start gap-2.5">
+        <input
+          type="checkbox"
+          checked={overlay}
+          onChange={(e) => onChange({ overlay: e.target.checked })}
+          className="mt-1 h-5 w-5 shrink-0 accent-[#0072B2]"
+        />
+        <span>
+          <span className="font-medium">한 차트에 겹쳐 보기</span>
+          <span className="block text-sm text-[var(--ink-muted)]">
+            지표가 위아래로 나뉘어 있으면 흐름을 맞춰 보기 어렵습니다. 겹치면 한눈에 읽힙니다.
+            {overlay ? (
+              ' 색은 기업, 선 모양은 지표를 뜻합니다.'
+            ) : (
+              <>
+                {' '}
+                켜면 <strong className="font-medium">성장률 비교</strong>가 함께 켜집니다 — 단위가
+                다른 값을 그대로 겹치면 없는 상관관계가 보이기 때문입니다.
+              </>
+            )}
           </span>
         </span>
       </label>

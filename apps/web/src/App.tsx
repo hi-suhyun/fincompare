@@ -104,6 +104,7 @@ export function App(): React.ReactElement {
                 fromYear={state.fromYear}
                 toYear={state.toYear}
                 normalize={state.normalize}
+                overlay={state.overlay}
                 countries={countryList}
                 onChange={update}
               />
@@ -143,7 +144,7 @@ export function App(): React.ReactElement {
 
       {data !== undefined && (
         <div className={isFetching ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
-          <ChartStack data={data} logScale={logScale} />
+          <ChartStack data={data} logScale={logScale} overlay={state.overlay} />
         </div>
       )}
 

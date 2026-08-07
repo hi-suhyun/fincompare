@@ -37,6 +37,41 @@ export function styleForIndex(index: number): SeriesStyle {
 }
 
 /**
+ * 겹쳐 보기에서 **지표**를 구분하는 선 스타일.
+ *
+ * 겹치면 한 차트에 (기업 × 지표) 조합이 다 들어온다. 두 축으로 나눠 읽게 한다:
+ *   색   = 기업  (쌓아 보기와 같은 색을 유지해야 눈이 다시 배우지 않는다)
+ *   선   = 지표
+ *
+ * 그래서 기업 색상용 dash 와는 별도 목록이 필요하다.
+ */
+export interface MetricLineStyle {
+  dash: string | null;
+  label: string;
+}
+
+export const METRIC_LINE_STYLES: readonly MetricLineStyle[] = [
+  { dash: null, label: '실선' },
+  { dash: '7 4', label: '파선' },
+  { dash: '2 3', label: '점선' },
+  { dash: '12 3 2 3', label: '일점쇄선' },
+];
+
+export function metricLineStyle(index: number): MetricLineStyle {
+  const style = METRIC_LINE_STYLES[index % METRIC_LINE_STYLES.length];
+  if (style === undefined) throw new Error('지표 선 스타일 목록이 비어 있습니다');
+  return style;
+}
+
+/**
+ * 겹쳐 보기가 읽을 만한 선 개수의 상한.
+ *
+ * 기업 5개 × 지표 4개 = 20개까지 가능한데, 그쯤 되면 색과 선 스타일로도
+ * 구분이 안 된다. 넘으면 화면에서 안내한다 (막지는 않는다 — 판단은 사용자 몫).
+ */
+export const OVERLAY_READABLE_LINES = 8;
+
+/**
  * 차트 개수에 따른 높이(px).
  * 1개 400 -> 4개 200. 그 이하로는 줄이지 않는다 — 읽을 수 없어진다.
  */
