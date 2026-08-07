@@ -1,6 +1,7 @@
 export * from './schema/company.js';
 export * from './schema/financial.js';
 export * from './period/align.js';
+export * from './period/coverage.js';
 export * from './search/hangul.js';
 export * from './viz/palette.js';
 export * from './metrics/formulas.js';

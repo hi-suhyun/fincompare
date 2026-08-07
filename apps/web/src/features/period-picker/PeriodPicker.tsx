@@ -1,12 +1,15 @@
+import { coverageNote, earliestYearFor, type Country } from '@fincompare/shared';
+
 interface Props {
   fromYear: number;
   toYear: number;
   normalize: boolean;
+  /** 선택된 기업들의 국가. "전체" 가 어디까지 갈 수 있는지를 이걸로 정한다 */
+  countries: readonly Country[];
   onChange: (patch: { fromYear?: number; toYear?: number; normalize?: boolean }) => void;
 }
 
 const CURRENT_YEAR = new Date().getFullYear();
-const EARLIEST_YEAR = 2015; // DART 제공 시작
 
 const PRESETS: ReadonlyArray<{ label: string; years: number | null }> = [
   { label: '최근 3년', years: 3 },
@@ -15,24 +18,39 @@ const PRESETS: ReadonlyArray<{ label: string; years: number | null }> = [
   { label: '전체', years: null },
 ];
 
-export function PeriodPicker({ fromYear, toYear, normalize, onChange }: Props): React.ReactElement {
+export function PeriodPicker({
+  fromYear,
+  toYear,
+  normalize,
+  countries,
+  onChange,
+}: Props): React.ReactElement {
   const latest = CURRENT_YEAR - 1; // 올해 사업보고서는 아직 안 나왔다
+
+  /**
+   * 하한은 소스마다 다르다 (DART 2015, SEC 2009).
+   * 전 소스 공통으로 2015 를 쓰면 미국 기업을 봐도 10년밖에 안 나온다.
+   */
+  const earliest = earliestYearFor(countries);
+
   const years: number[] = [];
-  for (let y = EARLIEST_YEAR; y <= latest; y++) years.push(y);
+  for (let y = earliest; y <= latest; y++) years.push(y);
 
   const applyPreset = (span: number | null): void => {
     if (span === null) {
-      onChange({ fromYear: EARLIEST_YEAR, toYear: latest });
+      onChange({ fromYear: earliest, toYear: latest });
       return;
     }
-    onChange({ fromYear: Math.max(EARLIEST_YEAR, latest - span + 1), toYear: latest });
+    onChange({ fromYear: Math.max(earliest, latest - span + 1), toYear: latest });
   };
 
   const activePreset = PRESETS.find((p) =>
     p.years === null
-      ? fromYear === EARLIEST_YEAR && toYear === latest
-      : fromYear === Math.max(EARLIEST_YEAR, latest - p.years + 1) && toYear === latest,
+      ? fromYear === earliest && toYear === latest
+      : fromYear === Math.max(earliest, latest - p.years + 1) && toYear === latest,
   );
+
+  const note = coverageNote(countries);
 
   return (
     <div className="flex flex-col gap-3">
@@ -56,6 +74,8 @@ export function PeriodPicker({ fromYear, toYear, normalize, onChange }: Props): 
           </button>
         ))}
       </div>
+
+      {note !== null && <p className="text-sm text-[var(--ink-muted)]">{note}</p>}
 
       <div className="flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-2">

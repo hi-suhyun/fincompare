@@ -1,4 +1,9 @@
-import { MAX_COMPANIES, MAX_METRICS, MetricIdSchema } from '@fincompare/shared';
+import {
+  ABSOLUTE_EARLIEST_YEAR,
+  MAX_COMPANIES,
+  MAX_METRICS,
+  MetricIdSchema,
+} from '@fincompare/shared';
 import { Router } from 'express';
 import { z } from 'zod';
 import type { DartClient } from '../adapters/dart/client.js';
@@ -9,8 +14,11 @@ import type { Db } from '../db/client.js';
 import { buildSeries } from '../services/series.js';
 
 const CURRENT_YEAR = new Date().getUTCFullYear();
-/** DART 는 2015년 이후만 제공한다 */
-const EARLIEST_YEAR = 2015;
+/**
+ * 요청 가능한 최소 연도. 소스별 실제 하한은 다르다 (DART 2015, SEC 2009).
+ * 여기서는 가장 이른 쪽으로 열어 두고, 데이터가 없는 구간은 자연스럽게 결측이 된다.
+ */
+const EARLIEST_YEAR = ABSOLUTE_EARLIEST_YEAR;
 
 const csv = (value: string): string[] =>
   value

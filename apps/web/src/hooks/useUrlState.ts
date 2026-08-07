@@ -1,4 +1,10 @@
-import { MAX_COMPANIES, MAX_METRICS, MetricIdSchema, type MetricId } from '@fincompare/shared';
+import {
+  ABSOLUTE_EARLIEST_YEAR,
+  MAX_COMPANIES,
+  MAX_METRICS,
+  MetricIdSchema,
+  type MetricId,
+} from '@fincompare/shared';
 import { useCallback, useEffect, useState } from 'react';
 
 /**
@@ -21,7 +27,7 @@ export interface AppState {
 }
 
 const CURRENT_YEAR = new Date().getFullYear();
-const EARLIEST_YEAR = 2015;
+const EARLIEST_YEAR = ABSOLUTE_EARLIEST_YEAR;
 
 export const DEFAULT_STATE: AppState = {
   companyIds: [],

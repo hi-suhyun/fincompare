@@ -1,4 +1,4 @@
-import { MAX_COMPANIES } from '@fincompare/shared';
+import { MAX_COMPANIES, type Country } from '@fincompare/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useMemo, useState } from 'react';
 import { ChartStack } from './charts/ChartStack.js';
@@ -49,9 +49,10 @@ export function App(): React.ReactElement {
   }, [pickedNames, data]);
 
   const countries = useMemo(
-    () => new Set((data?.companies ?? []).map((c) => c.country)),
+    () => new Set((data?.companies ?? []).map((c) => c.country as Country)),
     [data],
   );
+  const countryList = useMemo(() => [...countries], [countries]);
   // 국내·해외가 섞였을 때만 통화 토글이 의미를 가진다
   const isMixedMarket = countries.size > 1;
   const hasUsCompanies = countries.has('US');
@@ -74,7 +75,8 @@ export function App(): React.ReactElement {
       <header>
         <h1 className="text-2xl font-bold">재무지표 비교</h1>
         <p className="text-[var(--ink-muted)]">
-          여러 기업의 재무지표를 같은 기간에 겹쳐서 봅니다. 출처는 금융감독원 DART입니다.
+          국내·미국 상장기업의 재무지표를 같은 기간에 겹쳐서 봅니다.
+          공시 원문(DART · SEC)에서 직접 가져옵니다.
         </p>
       </header>
 
@@ -102,6 +104,7 @@ export function App(): React.ReactElement {
                 fromYear={state.fromYear}
                 toYear={state.toYear}
                 normalize={state.normalize}
+                countries={countryList}
                 onChange={update}
               />
               <div className="flex flex-col items-start gap-4">
