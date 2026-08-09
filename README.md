@@ -85,12 +85,11 @@ turso db tokens create fincompare             # → TURSO_AUTH_TOKEN
 vercel --prod
 ```
 
-올릴 덤프는 캐시 테이블을 뺀 핵심 데이터만 만듭니다. `raw_cache`는 원문 응답 보관용이라
-전체의 대부분을 차지하지만 없어도 다시 받아오면 됩니다:
+올릴 덤프는 캐시 테이블을 뺀 핵심 데이터만 만듭니다. `raw_cache`는 외부 응답 원문 보관용이라
+용량의 대부분을 차지하지만, 없어도 다시 받아오면 됩니다 (51MB → 1.3MB):
 
 ```bash
-sqlite3 apps/api/data/dev.db \
-  ".dump companies company_aliases financial_facts" > dump.sql
+./scripts/dump-for-deploy.sh > dump.sql
 ```
 
 ### 접근 제한
