@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@fincompare/shared": "workspace:*",
-    "better-sqlite3": "^11.8.1",
+    "@libsql/client": "^0.17.4",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.44.6",
     "express": "^5.1.0",
@@ -26,7 +26,6 @@
     "zod": "^4.0.5"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.12",
     "@types/express": "^5.0.0",
     "@types/node": "^22.13.1",
     "drizzle-kit": "^0.31.5",

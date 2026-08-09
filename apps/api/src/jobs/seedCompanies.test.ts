@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createDb } from '../db/client.js';
+import { createDb, type DbHandle } from '../db/client.js';
 import { companies, companyAliases } from '../db/schema.js';
 import type { AliasRow, CompanyRow } from '../services/companySeed.js';
 import { writeCompanies } from './seedCompanies.js';
@@ -13,7 +13,7 @@ import { writeCompanies } from './seedCompanies.js';
  * 조용히 틀리는 종류의 버그라 테스트로 고정한다.
  */
 describe('writeCompanies — 재시딩', () => {
-  let handle: ReturnType<typeof createDb>;
+  let handle: DbHandle;
 
   const baseRow: CompanyRow = {
     id: 'KR:005930',
@@ -38,12 +38,12 @@ describe('writeCompanies — 재시딩', () => {
     aliasType: 'KO_NAME',
   });
 
-  beforeEach(() => {
-    handle = createDb(':memory:');
+  beforeEach(async () => {
+    handle = await createDb(':memory:');
   });
 
-  afterEach(() => {
-    handle.close();
+  afterEach(async () => {
+    await handle.close();
   });
 
   const read = async () =>

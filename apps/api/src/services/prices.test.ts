@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { PriceAdapter, PricePoint } from '../adapters/price/types.js';
-import { createDb } from '../db/client.js';
+import { createDb, type DbHandle } from '../db/client.js';
 import { companies, financialFacts } from '../db/schema.js';
 import type { CompanyRef } from './financials.js';
 import { ensureClosePrices } from './prices.js';
@@ -46,10 +46,10 @@ const NVDA: CompanyRef = {
 };
 
 describe('ensureClosePrices — 정렬 연도', () => {
-  let handle: ReturnType<typeof createDb>;
+  let handle: DbHandle;
 
   beforeEach(async () => {
-    handle = createDb(':memory:');
+    handle = await createDb(':memory:');
     await handle.db.insert(companies).values({
       id: NVDA.id,
       country: 'US',
@@ -97,8 +97,8 @@ describe('ensureClosePrices — 정렬 연도', () => {
     ]);
   });
 
-  afterEach(() => {
-    handle.close();
+  afterEach(async () => {
+    await handle.close();
   });
 
   const storedPrices = async () =>
@@ -173,7 +173,7 @@ describe('ensureClosePrices — 정렬 연도', () => {
  * 네이버는 수정주가, KRX 는 미조정 실거래가라 섞이면 PER 이 조용히 틀린다.
  */
 describe('ensureClosePrices — 소스 전환', () => {
-  let handle: ReturnType<typeof createDb>;
+  let handle: DbHandle;
 
   const SAMSUNG: CompanyRef = {
     id: 'KR:005930',
@@ -189,7 +189,7 @@ describe('ensureClosePrices — 소스 전환', () => {
   };
 
   beforeEach(async () => {
-    handle = createDb(':memory:');
+    handle = await createDb(':memory:');
     await handle.db.insert(companies).values({
       id: SAMSUNG.id,
       country: 'KR',
@@ -217,8 +217,8 @@ describe('ensureClosePrices — 소스 전환', () => {
     });
   });
 
-  afterEach(() => {
-    handle.close();
+  afterEach(async () => {
+    await handle.close();
   });
 
   it('소스가 바뀌면 다시 받는다', async () => {

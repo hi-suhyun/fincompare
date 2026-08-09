@@ -13,6 +13,8 @@ const ConfigSchema = z.object({
   PRICE_PROVIDER_KR: z.enum(['krx', 'naver']).default('krx'),
   PRICE_PROVIDER_US: z.enum(['tiingo', 'twelvedata']).default('tiingo'),
   DATABASE_URL: z.string().default('file:./data/dev.db'),
+  /** libsql:// 원격 DB 를 쓸 때만 필요하다. 로컬 파일에는 안 쓴다 */
+  TURSO_AUTH_TOKEN: z.string().default(''),
   PORT: z.coerce.number().int().positive().default(3100),
 });
 

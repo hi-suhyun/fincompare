@@ -43,7 +43,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const handle = createDb(':memory:');
+  const handle = await createDb(':memory:');
   const limiter = new RateLimiter({ ...DEFAULT_LIMITS.DART });
   const queue = new RequestQueue({ source: 'DART', limiter });
   const cache = new CacheLayer(new SqliteCacheStore(handle.db));
@@ -161,7 +161,7 @@ async function main(): Promise<void> {
   const q = limiter.quota;
   console.log(`  이번 실행 호출: ${q.used}건 | 남은 한도(설정값 기준): ${q.remaining ?? '무제한'}`);
 
-  handle.close();
+  await handle.close();
 }
 
 main().catch((error: unknown) => {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createDb } from '../db/client.js';
+import { createDb, type DbHandle } from '../db/client.js';
 import { companies, companyAliases } from '../db/schema.js';
 import { buildAliasRows, buildCompanyRow, type CompanyRow } from './companySeed.js';
 import { searchCompanies } from './companySearch.js';
@@ -47,10 +47,10 @@ const FIXTURES = [
 ];
 
 describe('기업 검색', () => {
-  let handle: ReturnType<typeof createDb>;
+  let handle: DbHandle;
 
   beforeEach(async () => {
-    handle = createDb(':memory:');
+    handle = await createDb(':memory:');
 
     const companyRows: CompanyRow[] = [];
     for (const f of FIXTURES) {
@@ -69,8 +69,8 @@ describe('기업 검색', () => {
     await handle.db.insert(companyAliases).values(aliases);
   });
 
-  afterEach(() => {
-    handle.close();
+  afterEach(async () => {
+    await handle.close();
   });
 
   const ids = async (q: string, limit = 10): Promise<string[]> =>

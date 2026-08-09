@@ -19,7 +19,9 @@ import { DEFAULT_LIMITS, RateLimiter } from './core/rateLimiter.js';
 import { SqliteCacheStore } from './db/cacheStore.js';
 
 const config = loadConfig();
-const handle = createDb(config.DATABASE_URL);
+const handle = await createDb(config.DATABASE_URL, {
+  ...(config.TURSO_AUTH_TOKEN === '' ? {} : { authToken: config.TURSO_AUTH_TOKEN }),
+});
 
 const cache = new CacheLayer(new SqliteCacheStore(handle.db));
 

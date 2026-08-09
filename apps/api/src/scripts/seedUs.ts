@@ -25,7 +25,7 @@ async function main(): Promise<void> {
   }
 
   const includeAll = process.argv.includes('--all');
-  const handle = createDb(config.DATABASE_URL);
+  const handle = await createDb(config.DATABASE_URL);
   const limiter = new RateLimiter({ ...DEFAULT_LIMITS.SEC });
   const sec = new SecClient({
     userAgent: config.SEC_USER_AGENT,
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
     `  소요                   : ${((Date.now() - startedAt) / 1000).toFixed(1)}초 | 호출 ${limiter.quota.used}건`,
   );
 
-  handle.close();
+  await handle.close();
 }
 
 main().catch((error: unknown) => {

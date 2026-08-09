@@ -31,7 +31,7 @@ async function main(): Promise<void> {
   }
 
   const limit = parseLimit(process.argv);
-  const handle = createDb(config.DATABASE_URL);
+  const handle = await createDb(config.DATABASE_URL);
   const limiter = new RateLimiter({ ...DEFAULT_LIMITS.DART, capacity: 10, refillPerSecond: 10 });
   // 약 4,000회를 직렬로 돌리면 RTT 가 그대로 쌓여 26분이 걸린다.
   // DART 는 실측상 20 req/s 를 받아주므로 겹쳐 보낸다.
@@ -67,7 +67,7 @@ async function main(): Promise<void> {
   console.log(`  검색 별칭              : ${result.aliasCount.toLocaleString()}`);
   console.log(`  소요                   : ${elapsed}초 | API 호출 ${limiter.quota.used}건`);
 
-  handle.close();
+  await handle.close();
 }
 
 main().catch((error: unknown) => {

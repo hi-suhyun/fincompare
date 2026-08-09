@@ -1,34 +1,34 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CacheLayer, TTL_MS } from '../core/cache.js';
 import { SqliteCacheStore } from './cacheStore.js';
-import { createDb } from './client.js';
+import { createDb, type DbHandle } from './client.js';
 
 /**
  * 인메모리 SQLite 로 실제 마이그레이션을 돌려서 검증한다.
  * 스키마가 실제로 동작하는지(제약, 인덱스, upsert)를 확인하는 게 목적이다.
  */
 describe('SqliteCacheStore', () => {
-  let handle: ReturnType<typeof createDb>;
+  let handle: DbHandle;
   let cache: CacheLayer;
 
-  beforeEach(() => {
-    handle = createDb(':memory:');
+  beforeEach(async () => {
+    handle = await createDb(':memory:');
     cache = new CacheLayer(new SqliteCacheStore(handle.db));
   });
 
-  afterEach(() => {
-    handle.close();
+  afterEach(async () => {
+    await handle.close();
   });
 
   const encode = (s: string): Uint8Array => new TextEncoder().encode(s);
   const decode = (b: Uint8Array): string => new TextDecoder().decode(b);
 
-  it('마이그레이션이 8개 테이블을 만든다', () => {
-    const rows = handle.sqlite
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '__drizzle%'")
-      .all() as Array<{ name: string }>;
+  it('마이그레이션이 8개 테이블을 만든다', async () => {
+    const result = await handle.execute(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '__drizzle%'",
+    );
 
-    expect(rows.map((r) => r.name).sort()).toEqual([
+    expect(result.rows.map((r) => String(r['name'])).sort()).toEqual([
       'companies',
       'company_aliases',
       'fetch_log',
@@ -70,8 +70,8 @@ describe('SqliteCacheStore', () => {
     const result = await cache.lookup('k', decode);
     expect(result).toMatchObject({ kind: 'HIT', value: 'new' });
 
-    const count = handle.sqlite.prepare('SELECT COUNT(*) AS c FROM raw_cache').get() as { c: number };
-    expect(count.c).toBe(1);
+    const count = await handle.execute('SELECT COUNT(*) AS c FROM raw_cache');
+    expect(Number(count.rows[0]?.['c'])).toBe(1);
   });
 
   it('데이터 없음 기록이 DB 를 거쳐서도 유지된다', async () => {
@@ -94,20 +94,18 @@ describe('SqliteCacheStore', () => {
 
     expect((await cache.lookup('k', decode)).kind).toBe('MISS');
 
-    const logs = handle.sqlite.prepare('SELECT COUNT(*) AS c FROM fetch_log').get() as { c: number };
-    expect(logs.c).toBe(0);
+    const logs = await handle.execute('SELECT COUNT(*) AS c FROM fetch_log');
+    expect(Number(logs.rows[0]?.['c'])).toBe(0);
   });
 
-  it('외래키 제약이 켜져 있다 — 없는 기업의 재무데이터가 들어가면 안 된다', () => {
-    expect(() =>
-      handle.sqlite
-        .prepare(
-          `INSERT INTO financial_facts
-           (company_id, metric_id, period_type, period_end, fiscal_year, aligned_year,
-            currency, consolidation, source, source_tag, updated_at)
-           VALUES ('KR:없는회사','revenue','FY','2024-12-31',2024,2024,'KRW','CFS','DART','x','2026-08-06')`,
-        )
-        .run(),
-    ).toThrow(/FOREIGN KEY/i);
+  it('외래키 제약이 켜져 있다 — 없는 기업의 재무데이터가 들어가면 안 된다', async () => {
+    await expect(
+      handle.execute(
+        `INSERT INTO financial_facts
+         (company_id, metric_id, period_type, period_end, fiscal_year, aligned_year,
+          currency, consolidation, source, source_tag, updated_at)
+         VALUES ('KR:없는회사','revenue','FY','2024-12-31',2024,2024,'KRW','CFS','DART','x','2026-08-06')`,
+      ),
+    ).rejects.toThrow(/FOREIGN KEY/i);
   });
 });
