@@ -20,11 +20,15 @@ fi
 # DATABASE_URL 은 REMOTE_DATABASE_URL 에서 읽는다. 로컬 .env 의 DATABASE_URL 은
 # 파일 DB 를 가리켜야 개발이 빠르고, 인터넷 없이도 돌고, 무료 티어 사용량도 안 깎인다.
 # 배포용 원격 주소를 다른 이름으로 두면 둘이 안 부딪힌다.
+#
+# TIINGO_API_KEY 는 일부러 뺐다. 로컬에만 두고 배포에는 올리지 않는다.
+# 무료 티어 약관이 받은 데이터를 남에게 보여주는 걸 금지하는데, 배포판은
+# 여러 명이 같은 링크로 들어오므로 그게 곧 위반이 된다.
+# 자기 혼자 쓰는 인스턴스라면 아래 목록에 넣어도 된다.
 KEYS=(
   DART_API_KEY
   SEC_USER_AGENT
   KRX_AUTH_KEY
-  TIINGO_API_KEY
   PRICE_PROVIDER_KR
   PRICE_PROVIDER_US
   DATABASE_URL
