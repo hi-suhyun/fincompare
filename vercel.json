@@ -1,37 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "regions": [
-    "icn1"
-  ],
   "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm --filter @fincompare/web build",
-  "outputDirectory": "apps/web/dist",
-  "functions": {
-    "api/index.ts": {
-      "memory": 1024,
-      "maxDuration": 60
-    }
-  },
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/api"
-    },
-    {
-      "source": "/((?!api/).*)",
-      "destination": "/index.html"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        {
-          "key": "X-Robots-Tag",
-          "value": "noindex, nofollow"
-        }
-      ]
-    }
-  ]
+  "buildCommand": "node scripts/build-vercel-output.mjs"
 }

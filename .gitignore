@@ -9,9 +9,6 @@ apps/api/.env
 # SQLite 개발 DB. 'data/' 로 두면 apps/api/src/data(소스)까지 무시된다.
 apps/api/data/
 
-# 서버리스 번들 산출물. 빌드할 때마다 새로 만든다.
-/api/index.js
-/api/index.js.map
 .vercel/
 
 # vercel link 가 .env* 를 넣지만 그러면 .env.example 까지 사라진다.

@@ -10,8 +10,7 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "build": "pnpm -r build",
-    "build:api": "node scripts/build-api.mjs",
-    "build:deploy": "pnpm run build:api && pnpm --filter @fincompare/web build"
+    "build:deploy": "node scripts/build-vercel-output.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

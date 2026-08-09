@@ -12,6 +12,11 @@ import { createApp } from './createApp.js';
  *
  * 마이그레이션은 끈다. 배포 스키마는 배포 전에 맞춰 두는 것이고,
  * 콜드 스타트마다 원격 DB 에 마이그레이션을 돌릴 이유가 없다.
+ *
+ * DB 는 번들 단계에서 @libsql/client/web 으로 치환된다
+ * (scripts/build-vercel-output.mjs 의 alias 참고). 기본 진입점은 로컬 파일을
+ * 열려고 네이티브 모듈을 딸려오는데 그건 번들에 넣을 수 없다.
+ * 배포는 원격 DB 만 보므로 HTTP 로만 말하는 web 으로 충분하다.
  */
 const bundle = createApp({ migrate: false });
 
