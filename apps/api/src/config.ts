@@ -1,9 +1,27 @@
 import { config as loadEnv } from 'dotenv';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
-// .env 는 모노레포 루트에만 둔다. 앱마다 복사하면 키가 흩어진다.
-loadEnv({ path: fileURLToPath(new URL('../../../.env', import.meta.url)), quiet: true });
+/**
+ * .env 는 모노레포 루트에만 둔다. 앱마다 복사하면 키가 흩어진다.
+ *
+ * 후보를 두 개 보는 이유는 번들 때문이다. 서버리스 함수로 번들되면
+ * import.meta.url 이 저장소 루트의 api/ 를 가리켜 상대 경로가 어긋난다.
+ *
+ * 배포에는 .env 가 아예 없다 — 플랫폼이 환경변수를 직접 주입한다.
+ * 그래서 하나도 못 찾아도 조용히 넘어간다.
+ */
+for (const candidate of [
+  fileURLToPath(new URL('../../../.env', import.meta.url)),
+  resolve(process.cwd(), '.env'),
+]) {
+  if (existsSync(candidate)) {
+    loadEnv({ path: candidate, quiet: true });
+    break;
+  }
+}
 
 const ConfigSchema = z.object({
   DART_API_KEY: z.string().default(''),

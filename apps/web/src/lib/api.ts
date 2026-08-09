@@ -5,7 +5,13 @@ import type { MetricId } from '@fincompare/shared';
  * API 키가 노출되고 캐싱도 안 된다.
  */
 
-const BASE_URL = (import.meta.env['VITE_API_BASE_URL'] as string | undefined) ?? 'http://localhost:3100';
+/**
+ * 배포에서는 프론트와 API 가 같은 오리진이라 빈 문자열이 맞다.
+ * 로컬 개발에서만 별도 포트로 뜬 API 를 가리킨다.
+ */
+const BASE_URL =
+  (import.meta.env['VITE_API_BASE_URL'] as string | undefined) ??
+  (import.meta.env.DEV ? 'http://localhost:3100' : '');
 
 export class ApiError extends Error {
   constructor(

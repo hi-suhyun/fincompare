@@ -1,0 +1,151 @@
+# 재무지표 비교
+
+국내(KOSPI·KOSDAQ)와 미국(NYSE·NASDAQ) 상장기업의 장기 재무지표를 한 화면에서 겹쳐 봅니다.
+공시 원문 — 금융감독원 DART, SEC EDGAR — 에서 직접 가져오고, 계산 근거를 화면에 함께 보여줍니다.
+
+```
+삼성전자 · Intel · NVIDIA 를 골라 2015~2025 영업이익률과 PER 추이를 한 번에 본다
+```
+
+## 무엇이 다른가
+
+- **이중 Y축을 쓰지 않습니다.** 지표마다 차트를 따로 두고 세로로 쌓습니다. 축 눈금을 픽셀 단위로 맞춰
+  어느 차트의 2019년이든 같은 가로 위치에 옵니다. 한 곳에 마우스를 올리면 모든 차트에 세로선이 함께 서고,
+  그 해의 모든 기업 × 모든 지표 값이 한 번에 읽힙니다.
+- **빈 데이터를 0으로 채우지 않습니다.** 값이 없으면 선을 끊고 "데이터 없음"이라고 씁니다.
+- **회계 기준을 맞춥니다.** K-IFRS와 US GAAP 계정을 매핑하고, 결산월이 다른 기업(예: NVIDIA 1월,
+  Microsoft 6월)을 SEC가 쓰는 것과 같은 규칙으로 같은 연도에 정렬합니다.
+- **주가는 액면분할 미조정 실거래 종가**를 씁니다. EPS가 공시 당시 값이므로 PER을 계산하려면
+  주가도 같은 시점 기준이어야 맞습니다.
+
+설계 판단의 근거는 [docs/](docs/)에 있습니다 — [데이터 소스 비교](docs/00-data-sources.md),
+[계정 매핑](docs/01-account-mapping.md), [아키텍처](docs/02-architecture.md),
+[사용자 맥락](docs/03-user-context.md).
+
+## 직접 설치해서 쓰기
+
+미국 기업의 PER·PBR까지 전부 보려면 이 방법이어야 합니다. 이유는 아래 [미국 밸류에이션](#미국-밸류에이션) 참고.
+
+### 필요한 것
+
+| | 어디서 | 비용 | 없으면 |
+|---|---|---|---|
+| `DART_API_KEY` | [opendart.fss.or.kr](https://opendart.fss.or.kr/) | 무료·즉시 | 국내 기업 조회 불가 |
+| `SEC_USER_AGENT` | 발급 없음. `"앱이름 이메일주소"` 형식 | — | 미국 기업 403 |
+| `KRX_AUTH_KEY` | [openapi.krx.co.kr](https://openapi.krx.co.kr/) | 무료·승인 필요 | 국내 주가/PER/PBR 불가 |
+| `TIINGO_API_KEY` | [tiingo.com](https://www.tiingo.com/) | 무료 | 미국 주가/PER/PBR 불가 |
+
+> **KRX 주의** — 인증키 승인과 API 이용신청은 **별개 절차**입니다. 키만 받으면 모든 호출이 401입니다.
+> 「서비스 이용 > 주식」에서 *유가증권 일별매매정보*와 *코스닥 일별매매정보* 각각에 「API 이용신청」을
+> 눌러야 하고, 마이페이지 > 이용현황에서 "승인"으로 바뀌어야 동작합니다.
+
+### 설치
+
+```bash
+git clone <이 저장소 주소> && cd 재무지표\ 비교
+pnpm install
+cp .env.example .env   # 그리고 키를 채웁니다
+```
+
+기업 목록을 받아옵니다 (DART 전체 + SEC 주요 기업, 몇 분 걸립니다):
+
+```bash
+pnpm --filter @fincompare/api seed && pnpm --filter @fincompare/api seed:us
+```
+
+실행합니다:
+
+```bash
+./start.sh
+```
+
+`http://localhost:5173` 이 열립니다. 재무 데이터는 처음 조회하는 기업만 공시에서 받아오고,
+그 뒤로는 로컬 DB에서 바로 나옵니다.
+
+## 배포하기
+
+`vercel.json`이 들어 있어 Vercel에 그대로 올라갑니다. 프론트는 정적 파일로, API는 서버리스 함수로 뜹니다.
+
+서버리스는 파일시스템이 요청마다 사라지므로 DB는 원격이어야 합니다.
+[Turso](https://turso.tech/)(SQLite 호환, 무료 티어)를 씁니다 — 코드 변경 없이 `DATABASE_URL`만 바뀝니다.
+
+```bash
+# 1. Turso 에 DB 를 만들고 로컬 데이터를 올립니다
+turso db create fincompare
+turso db shell fincompare < dump.sql          # 아래 덤프 참고
+turso db show fincompare --url                # → DATABASE_URL
+turso db tokens create fincompare             # → TURSO_AUTH_TOKEN
+
+# 2. Vercel 환경변수에 넣습니다
+#    DATABASE_URL, TURSO_AUTH_TOKEN, DART_API_KEY, SEC_USER_AGENT,
+#    KRX_AUTH_KEY, ACCESS_PASSWORD
+#    (TIINGO_API_KEY 는 여러 명이 쓰는 배포판이면 비워 둡니다)
+
+# 3. 배포
+vercel --prod
+```
+
+올릴 덤프는 캐시 테이블을 뺀 핵심 데이터만 만듭니다. `raw_cache`는 원문 응답 보관용이라
+전체의 대부분을 차지하지만 없어도 다시 받아오면 됩니다:
+
+```bash
+sqlite3 apps/api/data/dev.db \
+  ".dump companies company_aliases financial_facts" > dump.sql
+```
+
+### 접근 제한
+
+`ACCESS_PASSWORD`를 채우면 API 전체가 비밀번호 뒤로 들어갑니다. 처음 한 번 입력하면 쿠키로 1년 기억합니다.
+비워 두면 게이트가 아예 걸리지 않습니다(로컬 개발용 기본값).
+
+데이터 자체는 공개 소스라 비밀이 아닙니다. 막는 이유는 **DART 일일 호출 한도가 공유 자원**이기 때문입니다.
+URL이 알려지면 모르는 사람이 한도를 태워, 정작 써야 할 사람이 조회를 못 하게 됩니다.
+같은 이유로 `robots.txt`와 `X-Robots-Tag`로 검색엔진 색인도 막습니다.
+
+## 미국 밸류에이션
+
+미국 기업은 기본적으로 **재무지표만** 나오고 PER·PBR·주가는 "데이터 없음"입니다.
+기술적 한계가 아니라 약관 때문입니다.
+
+무료 주가 API는 예외 없이 재배포를 금지합니다. Tiingo 무료 티어는 이렇게 씁니다 —
+받은 데이터를 다른 사람이나 조직에게 보여주거나 공유할 수 없다는 조항입니다.
+가족에게 링크를 주는 것도 여기에 걸립니다.
+
+경계는 **데이터**에 있지 **코드**에 있지 않습니다:
+
+| | |
+|---|---|
+| ❌ 내 키로 띄운 서버 링크를 남에게 주고, 그 사람이 미국 PER 을 본다 | 내가 데이터를 공유하는 것 |
+| ✅ 각자 자기 키를 넣고 자기 인스턴스에서 본다 | 제공처에서 본인에게 직접 간 본인 데이터 |
+
+그래서 이 저장소를 받아 **본인 Tiingo 키**를 `.env`에 넣으면 미국 밸류에이션이 켜집니다.
+설치 없이 하고 싶으면 본인 Vercel 계정으로 이 저장소를 직접 배포하면 됩니다 — 결과는 같습니다.
+
+키를 넣었는지는 서버가 프론트에 알려주므로, 화면 안내 문구도 실제 설정에 맞춰 바뀝니다.
+
+국내 기업은 이 제약이 없습니다. KRX 공공데이터는 공개·재배포가 허용되어 PER·PBR까지 전부 나옵니다.
+
+## 구조
+
+```
+packages/shared    지표 정의, 계정 매핑, 회계연도 정렬, 색상 팔레트
+apps/api           Express. 외부 API 호출·캐싱·계산. 키는 여기서만 읽는다
+apps/web           Vite + React + Recharts
+scripts/           서버리스 번들 빌드
+api/index.js       빌드 산출물 (커밋하지 않음)
+```
+
+프론트는 외부 API를 직접 부르지 않습니다 — 키가 노출되고 캐싱도 안 되기 때문입니다.
+외부 응답은 전부 Zod로 검증한 뒤 어댑터에서 내부 형식으로 변환합니다.
+
+```bash
+pnpm test        # 전체 테스트
+pnpm typecheck   # 타입 검사
+```
+
+## 출처
+
+재무제표는 금융감독원 DART와 SEC EDGAR의 각 연도 사업보고서 공시값입니다.
+국내 주가는 한국거래소(KRX) 일별매매정보, 환율은 ECB입니다.
+
+투자 판단의 근거로 쓰기 전에 원문 공시를 확인하세요.
