@@ -13,3 +13,8 @@ apps/api/data/
 /api/index.js
 /api/index.js.map
 .vercel/
+
+# vercel link 가 .env* 를 넣지만 그러면 .env.example 까지 사라진다.
+# 새로 받는 사람이 무슨 키가 필요한지 알 수 없게 된다.
+.env.*
+!.env.example

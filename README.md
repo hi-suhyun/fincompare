@@ -70,27 +70,22 @@ pnpm --filter @fincompare/api seed && pnpm --filter @fincompare/api seed:us
 [Turso](https://turso.tech/)(SQLite 호환, 무료 티어)를 씁니다 — 코드 변경 없이 `DATABASE_URL`만 바뀝니다.
 
 ```bash
-# 1. Turso 에 DB 를 만들고 로컬 데이터를 올립니다
-turso db create fincompare
-turso db shell fincompare < dump.sql          # 아래 덤프 참고
-turso db show fincompare --url                # → DATABASE_URL
-turso db tokens create fincompare             # → TURSO_AUTH_TOKEN
+# 1. turso.tech 에서 DB 를 만들고 URL·토큰을 받은 뒤, 로컬 데이터를 올립니다
+./scripts/dump-for-deploy.sh > dump.sql
+DATABASE_URL=libsql://... TURSO_AUTH_TOKEN=... \
+  node scripts/push-to-remote-db.mjs dump.sql
 
-# 2. Vercel 환경변수에 넣습니다
-#    DATABASE_URL, TURSO_AUTH_TOKEN, DART_API_KEY, SEC_USER_AGENT,
-#    KRX_AUTH_KEY, ACCESS_PASSWORD
-#    (TIINGO_API_KEY 는 여러 명이 쓰는 배포판이면 비워 둡니다)
+# 2. 받은 URL·토큰을 .env 에 적고, Vercel 환경변수로 옮깁니다
+./scripts/sync-env-to-vercel.sh production
 
 # 3. 배포
 vercel --prod
 ```
 
-올릴 덤프는 캐시 테이블을 뺀 핵심 데이터만 만듭니다. `raw_cache`는 외부 응답 원문 보관용이라
-용량의 대부분을 차지하지만, 없어도 다시 받아오면 됩니다 (51MB → 1.3MB):
+덤프는 캐시 테이블을 뺀 핵심 데이터만 담습니다. `raw_cache`는 외부 응답 원문 보관용이라
+용량의 대부분을 차지하지만, 없어도 다시 받아오면 됩니다 — 51MB에서 1.3MB로 줄어듭니다.
 
-```bash
-./scripts/dump-for-deploy.sh > dump.sql
-```
+`ACCESS_PASSWORD`는 `.env`에 적어 두면 함께 올라갑니다. 배포에서는 반드시 채우세요.
 
 ### 접근 제한
 
@@ -130,7 +125,7 @@ URL이 알려지면 모르는 사람이 한도를 태워, 정작 써야 할 사�
 packages/shared    지표 정의, 계정 매핑, 회계연도 정렬, 색상 팔레트
 apps/api           Express. 외부 API 호출·캐싱·계산. 키는 여기서만 읽는다
 apps/web           Vite + React + Recharts
-scripts/           서버리스 번들 빌드
+scripts/           서버리스 번들 빌드, DB 덤프·이전, 환경변수 동기화
 api/index.js       빌드 산출물 (커밋하지 않음)
 ```
 
