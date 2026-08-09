@@ -1,5 +1,5 @@
 import { OVERLAY_READABLE_LINES, chartHeight } from '@fincompare/shared';
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { ExportButtons } from '../features/export/ExportButtons.js';
 import type { SeriesResponse } from '../lib/api.js';
 import { resolveCurrency } from '../lib/format.js';
@@ -14,6 +14,8 @@ import { WarningList } from './WarningList.js';
 interface Props {
   data: SeriesResponse;
   logScale: boolean;
+  /** 로그 축을 켜는 손잡이. 격차가 클 때 안내에서 바로 켤 수 있게 한다 */
+  onLogScaleChange: (value: boolean) => void;
   /** 한 차트에 겹쳐 그린다. 정규화 모드에서만 켜진다 (App 에서 강제) */
   overlay: boolean;
 }
@@ -27,7 +29,12 @@ interface Props {
  *
  * 겹쳐 보기는 정규화 모드에서만 쓴다. 이유는 OverlayChart 주석 참고.
  */
-export function ChartStack({ data, logScale, overlay }: Props): React.ReactElement {
+export function ChartStack({
+  data,
+  logScale,
+  onLogScaleChange,
+  overlay,
+}: Props): React.ReactElement {
   const captureRef = useRef<HTMLDivElement>(null);
 
   // 통화는 여기서 한 번만 정한다. 차트마다 따로 판단하면 축과 표가 어긋난다.
@@ -35,6 +42,38 @@ export function ChartStack({ data, logScale, overlay }: Props): React.ReactEleme
     data.displayCurrency,
     data.companies.map((c) => c.country),
   );
+
+  /*
+   * 한 차트 안에서 배수 격차가 크면 작은 쪽이 바닥에 눌려 "변화 없음"처럼 보인다.
+   *
+   * 엔비디아(지수 6,742)와 삼성전자(333)를 함께 그리면 축이 0~8000 이 되고,
+   * 삼성전자가 3.3배 오른 것이 0 근처 직선으로 읽힌다. 선형 축에서는 배수 변화를
+   * 큰 쪽이 전부 가져가기 때문이다. 로그 축은 같은 배수를 같은 높이로 그린다.
+   *
+   * 지표마다 축이 따로이므로 지표별로 재고 가장 심한 것을 쓴다.
+   */
+  const spread = useMemo(() => {
+    if (logScale) return 1;
+
+    let worst = 1;
+    for (const metric of data.series) {
+      let max = 0;
+      let min = Number.POSITIVE_INFINITY;
+      for (const values of Object.values(metric.data)) {
+        for (const value of values) {
+          // 음수·0 은 로그 축으로도 해결되지 않으므로 격차 판단에서 뺀다
+          if (value === null || !Number.isFinite(value) || value <= 0) continue;
+          max = Math.max(max, value);
+          min = Math.min(min, value);
+        }
+      }
+      if (min !== Number.POSITIVE_INFINITY && min > 0) worst = Math.max(worst, max / min);
+    }
+    return worst;
+  }, [data.series, logScale]);
+
+  // 20배쯤부터 작은 쪽 선이 축 바닥에 붙어 기울기를 읽을 수 없다
+  const spreadTooWide = spread >= 20;
 
   const lineCount = data.series.length * data.companies.length;
   // 겹쳐 보기는 한 차트라 세로 공간을 몰아 쓸 수 있다
@@ -62,6 +101,21 @@ export function ChartStack({ data, logScale, overlay }: Props): React.ReactEleme
             periods={data.periods}
             currency={currency}
           />
+
+          {spreadTooWide && (
+            <p className="rounded-xl border-2 border-[#e8d5a8] bg-[#fffaf0] px-4 py-2.5 text-sm">
+              가장 큰 값과 작은 값이 {Math.round(spread).toLocaleString('ko-KR')}배 차이라, 작은
+              쪽은 바닥에 눌려 변화가 없어 보입니다.{' '}
+              <button
+                type="button"
+                onClick={() => onLogScaleChange(true)}
+                className="font-medium text-[#0072B2] underline underline-offset-2"
+              >
+                로그 축으로 보기
+              </button>
+              {' — '}같은 배수 변화를 같은 높이로 그려서 두 기업의 흐름이 함께 읽힙니다.
+            </p>
+          )}
 
           {overlay && lineCount > OVERLAY_READABLE_LINES && (
             <p className="rounded-xl border-2 border-[#e8d5a8] bg-[#fffaf0] px-4 py-2.5 text-sm">

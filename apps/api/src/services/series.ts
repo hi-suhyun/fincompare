@@ -342,7 +342,7 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
     displayCurrency,
     series,
     provenance,
-    warnings: dedupe(warnings),
+    warnings: dedupeWarnings(warnings),
   };
 }
 
@@ -532,12 +532,22 @@ async function applyCurrency(
  * 같은 경고가 연도마다 반복되면 화면이 시끄러워진다. 지표·기업 단위로 합치되,
  * 어느 연도들이었는지는 남긴다 — "2023" 하나만 보이면 다른 해는 괜찮은지 알 수 없다.
  */
-function dedupe(warnings: readonly SeriesWarning[]): SeriesWarning[] {
+export function dedupeWarnings(warnings: readonly SeriesWarning[]): SeriesWarning[] {
   const seen = new Map<string, SeriesWarning>();
   const periods = new Map<string, string[]>();
 
   for (const w of warnings) {
-    const key = `${w.companyId}|${w.metricId}|${w.code}`;
+    /*
+     * detail 까지 키에 넣는다.
+     *
+     * 코드까지만 묶으면 한 기업의 서로 다른 사건이 하나로 합쳐진다 — 엔비디아는
+     * 2021년 4:1 과 2024년 10:1 로 두 번 분할했는데, 둘 다 SHARE_COUNT_JUMP 라서
+     * 앞의 하나만 남고 10:1 이 통째로 사라졌다.
+     *
+     * 내용이 같은 경고(연도별로 반복되는 NEGATIVE_EPS 등)는 detail 도 같으므로
+     * 여전히 하나로 합쳐지고 period 목록만 늘어난다.
+     */
+    const key = `${w.companyId}|${w.metricId}|${w.code}|${w.detail ?? ''}`;
     if (!seen.has(key)) seen.set(key, w);
     if (w.period !== undefined) {
       const list = periods.get(key);

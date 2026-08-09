@@ -195,7 +195,12 @@ export function App(): React.ReactElement {
 
       {data !== undefined && (
         <div className={isFetching ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
-          <ChartStack data={data} logScale={logScale} overlay={state.overlay} />
+          <ChartStack
+            data={data}
+            logScale={logScale}
+            onLogScaleChange={setLogScale}
+            overlay={state.overlay}
+          />
         </div>
       )}
 
