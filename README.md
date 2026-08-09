@@ -66,6 +66,11 @@ pnpm --filter @fincompare/api seed && pnpm --filter @fincompare/api seed:us
 
 `vercel.json`이 들어 있어 Vercel에 그대로 올라갑니다. 프론트는 정적 파일로, API는 서버리스 함수로 뜹니다.
 
+빌드는 `scripts/build-vercel-output.mjs`가 Vercel Build Output API 산출물을 직접 만듭니다.
+Vercel에 TypeScript 처리를 맡기지 않는 이유는, 그쪽이 트랜스파일만 하고 번들하지 않아서
+`@fincompare/shared`(빌드 산출물 없이 raw `.ts`를 내보냄)를 런타임에 못 읽기 때문입니다.
+esbuild로 전부 인라인해 의존성 0인 자기완결 번들을 만듭니다.
+
 서버리스는 파일시스템이 요청마다 사라지므로 DB는 원격이어야 합니다.
 [Turso](https://turso.tech/)(SQLite 호환, 무료 티어)를 씁니다 — 코드 변경 없이 `DATABASE_URL`만 바뀝니다.
 
@@ -125,8 +130,7 @@ URL이 알려지면 모르는 사람이 한도를 태워, 정작 써야 할 사�
 packages/shared    지표 정의, 계정 매핑, 회계연도 정렬, 색상 팔레트
 apps/api           Express. 외부 API 호출·캐싱·계산. 키는 여기서만 읽는다
 apps/web           Vite + React + Recharts
-scripts/           서버리스 번들 빌드, DB 덤프·이전, 환경변수 동기화
-api/index.js       빌드 산출물 (커밋하지 않음)
+scripts/           배포 산출물 빌드, DB 덤프·이전, 환경변수 동기화
 ```
 
 프론트는 외부 API를 직접 부르지 않습니다 — 키가 노출되고 캐싱도 안 되기 때문입니다.
