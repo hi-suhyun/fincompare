@@ -20,5 +20,8 @@ export default async function handler(
   res: ServerResponse,
 ): Promise<void> {
   const { app } = await bundle;
-  app(req as never, res as never);
+  // Express 앱은 그 자체가 요청 핸들러다. 다만 타입 선언은 빌드 환경에 따라
+  // 호출 시그니처가 보이기도 하고 안 보이기도 해서, 여기서 명시적으로 좁힌다.
+  const handle = app as unknown as (req: IncomingMessage, res: ServerResponse) => void;
+  handle(req, res);
 }

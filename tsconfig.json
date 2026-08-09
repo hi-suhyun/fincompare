@@ -1,0 +1,12 @@
+{
+  // Vercel 이 서버리스 함수를 타입 검사할 때 집는 설정.
+  // 이게 없으면 기본값(moduleResolution: node)으로 검사해서
+  // 우리 코드가 정상인데도 없는 에러가 무더기로 뜬다.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["api/**/*.ts"]
+}

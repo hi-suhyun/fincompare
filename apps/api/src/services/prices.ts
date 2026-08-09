@@ -1,6 +1,6 @@
 import { alignPeriod, type BaseMetricId, type FinancialDataPoint } from '@fincompare/shared';
 import { and, eq, gte, lte, sql } from 'drizzle-orm';
-import type { PriceAdapter } from '../adapters/price/types.js';
+import type { PriceAdapter, PricePoint } from '../adapters/price/types.js';
 import { SourceError } from '../core/errors.js';
 import type { Db } from '../db/client.js';
 import { financialFacts, prices } from '../db/schema.js';
@@ -134,7 +134,7 @@ export async function ensureClosePrices(
 
   if (targets.length === 0) return warnings;
 
-  let points;
+  let points: PricePoint[];
   try {
     points = await adapter.fetchCloses(
       identifier,

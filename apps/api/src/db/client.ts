@@ -1,10 +1,17 @@
-import { createClient, type Client } from '@libsql/client';
+import { createClient } from '@libsql/client';
 import { drizzle } from 'drizzle-orm/libsql';
 import { migrate } from 'drizzle-orm/libsql/migrator';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as schema from './schema.js';
+
+/**
+ * @libsql/client 의 Client 를 직접 import 하지 않는다.
+ * 진입점에 따라 그 이름이 안 보여서, 빌드 환경마다 타입 에러가 갈린다.
+ * 반환형에서 끌어오면 어디서 검사하든 같은 타입이 나온다.
+ */
+type LibsqlClient = ReturnType<typeof createClient>;
 
 /**
  * libSQL(SQLite 호환) 클라이언트.
@@ -47,7 +54,7 @@ export interface CreateDbOptions {
 export async function createDb(url: string, options: CreateDbOptions = {}) {
   const remote = isRemote(url);
 
-  const client: Client = remote
+  const client: LibsqlClient = remote
     ? createClient({
         url,
         ...(options.authToken === undefined ? {} : { authToken: options.authToken }),
