@@ -2,6 +2,7 @@ import { OVERLAY_READABLE_LINES, chartHeight } from '@fincompare/shared';
 import { useRef } from 'react';
 import { ExportButtons } from '../features/export/ExportButtons.js';
 import type { SeriesResponse } from '../lib/api.js';
+import { resolveCurrency } from '../lib/format.js';
 import { HoverSyncProvider } from './hoverSync.js';
 import { MetricChart } from './MetricChart.js';
 import { OverlayChart } from './OverlayChart.js';
@@ -29,6 +30,12 @@ interface Props {
 export function ChartStack({ data, logScale, overlay }: Props): React.ReactElement {
   const captureRef = useRef<HTMLDivElement>(null);
 
+  // 통화는 여기서 한 번만 정한다. 차트마다 따로 판단하면 축과 표가 어긋난다.
+  const currency = resolveCurrency(
+    data.displayCurrency,
+    data.companies.map((c) => c.country),
+  );
+
   const lineCount = data.series.length * data.companies.length;
   // 겹쳐 보기는 한 차트라 세로 공간을 몰아 쓸 수 있다
   const height = overlay ? 420 : chartHeight(data.series.length);
@@ -49,7 +56,12 @@ export function ChartStack({ data, logScale, overlay }: Props): React.ReactEleme
             <SharedLegend companies={data.companies} provenance={data.provenance} />
           )}
 
-          <ReadoutPanel companies={data.companies} metrics={data.series} periods={data.periods} />
+          <ReadoutPanel
+            companies={data.companies}
+            metrics={data.series}
+            periods={data.periods}
+            currency={currency}
+          />
 
           {overlay && lineCount > OVERLAY_READABLE_LINES && (
             <p className="rounded-xl border-2 border-[#e8d5a8] bg-[#fffaf0] px-4 py-2.5 text-sm">
@@ -71,6 +83,7 @@ export function ChartStack({ data, logScale, overlay }: Props): React.ReactEleme
                   height={height}
                   showXAxisLabels={index === data.series.length - 1}
                   logScale={logScale}
+                  currency={currency}
                 />
               ))}
             </div>

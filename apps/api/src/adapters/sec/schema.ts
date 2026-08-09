@@ -47,7 +47,12 @@ export type SecConcept = z.infer<typeof SecConceptSchema>;
  * 개념 검증은 실제로 읽을 때 readConcept() 에서 한다.
  */
 export const SecCompanyFactsSchema = z.object({
-  cik: z.number(),
+  /**
+   * SEC 는 기업마다 타입을 다르게 준다. Apple 은 320193(숫자), ExxonMobil 은
+   * "2115436"(문자열)이다. 어느 쪽이든 padCik() 이 자릿수를 맞추므로 둘 다 받는다.
+   * 숫자로만 받으면 그 기업 전체가 통째로 조회 불가가 된다.
+   */
+  cik: z.union([z.number(), z.string()]),
   entityName: z.string(),
   facts: z.record(z.string(), z.record(z.string(), z.unknown())),
 });

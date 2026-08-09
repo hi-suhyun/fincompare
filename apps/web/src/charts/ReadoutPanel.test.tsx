@@ -73,7 +73,7 @@ function renderPanel(activePeriod?: string): void {
   render(
     <HoverSyncProvider>
       {activePeriod !== undefined && <SetPeriod period={activePeriod} />}
-      <ReadoutPanel companies={COMPANIES} metrics={METRICS} periods={PERIODS} />
+      <ReadoutPanel companies={COMPANIES} metrics={METRICS} periods={PERIODS} currency="KRW" />
     </HoverSyncProvider>,
   );
 }

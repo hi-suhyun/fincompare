@@ -13,7 +13,8 @@
     "db:migrate": "drizzle-kit migrate",
     "verify:dart": "tsx src/scripts/verifyDart.ts",
     "seed": "tsx src/scripts/seed.ts",
-    "seed:us": "tsx src/scripts/seedUs.ts"
+    "seed:us": "tsx src/scripts/seedUs.ts",
+    "backfill:us": "tsx src/scripts/backfillUs.ts"
   },
   "dependencies": {
     "@fincompare/shared": "workspace:*",

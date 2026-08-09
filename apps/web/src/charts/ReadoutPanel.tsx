@@ -1,11 +1,14 @@
 import type { SeriesCompany, SeriesMetric } from '../lib/api.js';
 import { NO_DATA, formatByUnit } from '../lib/format.js';
+import type { DisplayCurrency } from '../lib/format.js';
 import { useHoverSync } from './hoverSync.js';
 
 interface Props {
   companies: readonly SeriesCompany[];
   metrics: readonly SeriesMetric[];
   periods: readonly string[];
+  /** 표시 통화. 금액 표기가 이 값을 따른다 */
+  currency: DisplayCurrency;
 }
 
 /**
@@ -19,7 +22,12 @@ interface Props {
  * 세로 기준선은 차트에 그대로 있으므로 "어느 시점인지"는 차트에서,
  * "값이 얼마인지"는 여기서 읽는다.
  */
-export function ReadoutPanel({ companies, metrics, periods }: Props): React.ReactElement {
+export function ReadoutPanel({
+  companies,
+  metrics,
+  periods,
+  currency,
+}: Props): React.ReactElement {
   const { activePeriod } = useHoverSync();
 
   const period = activePeriod ?? periods[periods.length - 1] ?? null;
@@ -89,7 +97,7 @@ export function ReadoutPanel({ companies, metrics, periods }: Props): React.Reac
                       value === null ? 'text-[var(--ink-muted)]' : ''
                     }`}
                   >
-                    {value === null ? NO_DATA : formatByUnit(value, metric.unit)}
+                    {value === null ? NO_DATA : formatByUnit(value, metric.unit, currency)}
                   </td>
                 );
               })}

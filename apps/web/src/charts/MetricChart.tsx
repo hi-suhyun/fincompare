@@ -11,6 +11,7 @@ import {
 } from 'recharts';
 import type { SeriesCompany, SeriesMetric } from '../lib/api.js';
 import { formatAxisTick, unitLabel } from '../lib/format.js';
+import type { DisplayCurrency } from '../lib/format.js';
 import { useHoverSync } from './hoverSync.js';
 
 interface Props {
@@ -21,6 +22,8 @@ interface Props {
   /** 맨 아래 차트에만 X축 라벨을 노출한다. 위쪽은 눈금선만 */
   showXAxisLabels: boolean;
   logScale: boolean;
+  /** 표시 통화. 축 라벨과 눈금이 이 값을 따른다 */
+  currency: DisplayCurrency;
 }
 
 /**
@@ -44,6 +47,7 @@ export function MetricChart({
   height,
   showXAxisLabels,
   logScale,
+  currency,
 }: Props): React.ReactElement {
   const { activePeriod, setActivePeriod } = useHoverSync();
 
@@ -56,7 +60,7 @@ export function MetricChart({
   });
 
   const allValues = companies.flatMap((c) => metric.data[c.id] ?? []);
-  const displayUnit = unitLabel(metric.unit, allValues);
+  const displayUnit = unitLabel(metric.unit, allValues, currency);
 
   // 로그축은 0 이하 값을 그리지 못한다. 적자가 있으면 조용히 선이 사라진다.
   const canUseLog = allValues.every((v) => v === null || v > 0);
@@ -118,7 +122,7 @@ export function MetricChart({
             axisLine={false}
             scale={useLog ? 'log' : 'auto'}
             domain={useLog ? ['auto', 'auto'] : ['auto', 'auto']}
-            tickFormatter={(value: number) => formatAxisTick(value, metric.unit)}
+            tickFormatter={(value: number) => formatAxisTick(value, metric.unit, currency)}
           />
 
           {/* 비율 지표는 0선이 의미를 가진다 — 흑자·적자 경계 */}

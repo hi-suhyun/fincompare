@@ -43,6 +43,23 @@ export interface UsSeedOptions {
   limit?: number;
 }
 
+/**
+ * 재무 이력이 다른 CIK 에 있는 종목.
+ *
+ * 지주회사 전환·합병을 하면 티커는 신설 법인으로 옮겨가는데, 과거 재무제표는
+ * 기존 법인 CIK 에 그대로 남는다. SEC 의 company_tickers.json 은 "지금 그 티커를
+ * 쓰는 법인"을 가리키므로, 그대로 따르면 신설 법인에 붙어 이력이 0건이 된다.
+ *
+ * 예: XOM 은 2115436(ExxonMobil Holdings, 수수료 신고만 있음)으로 매핑되지만
+ * 재무제표는 34088(Exxon Mobil Corporation, us-gaap 개념 438개)에 있다.
+ *
+ * 장기 추이를 보는 도구라 이력 쪽을 택한다. 신설 법인이 실제로 보고를 시작하면
+ * 그때 이 항목을 지운다.
+ */
+const CIK_OVERRIDE: Readonly<Record<string, string>> = {
+  XOM: '0000034088',
+};
+
 export async function seedUsCompanies(
   db: Db,
   sec: SecClient,
@@ -119,7 +136,7 @@ export async function seedUsCompanies(
         nameEn: entry.title,
         corpCode: null,
         stockCode: null,
-        cik: padCik(entry.cik_str),
+        cik: CIK_OVERRIDE[ticker] ?? padCik(entry.cik_str),
         ticker,
         fiscalYearEndMonth: parseFiscalYearEndMonth(submissions.fiscalYearEnd),
         isAdr: false,
