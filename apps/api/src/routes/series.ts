@@ -54,6 +54,16 @@ const SeriesQuerySchema = z
       .transform((v) => v === 'true'),
     // native = 각 기업의 보고 통화 그대로. 국내만 비교할 때는 환산이 불필요하다.
     currency: z.enum(['KRW', 'USD', 'native']).default('native'),
+    /*
+     * 기본값이 true 인 이유: 이 도구는 장기 추이를 보는 물건이다.
+     * 조정하지 않으면 분할 지점에서 선이 끊겨 추이 자체를 읽을 수 없고,
+     * 그게 원래 사용자가 하려던 일이다. PER·PBR 은 어느 쪽이든 같다.
+     * 각 시점 공시값이 필요하면 끄면 된다 — 화면에 기준을 함께 표시한다.
+     */
+    adjustSplits: z
+      .enum(['true', 'false'])
+      .default('true')
+      .transform((v) => v === 'true'),
   })
   .refine((v) => v.from <= v.to, {
     message: '시작 연도가 종료 연도보다 늦습니다',
@@ -95,6 +105,7 @@ export function createSeriesRouter(deps: SeriesRouterDeps): Router {
         toYear: parsed.data.to,
         normalize: parsed.data.normalize,
         currency: parsed.data.currency,
+        adjustSplits: parsed.data.adjustSplits,
       },
     )
       .then((result) => {

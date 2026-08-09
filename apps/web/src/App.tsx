@@ -1,4 +1,4 @@
-import { MAX_COMPANIES, type Country } from '@fincompare/shared';
+import { MAX_COMPANIES, PER_SHARE_METRICS, type Country } from '@fincompare/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChartStack } from './charts/ChartStack.js';
@@ -30,6 +30,7 @@ export function App(): React.ReactElement {
       state.toYear,
       state.normalize,
       state.currency,
+      state.adjustSplits,
     ],
     queryFn: () =>
       fetchSeries({
@@ -39,6 +40,7 @@ export function App(): React.ReactElement {
         toYear: state.toYear,
         normalize: state.normalize,
         currency: state.currency,
+        adjustSplits: state.adjustSplits,
       }),
     enabled: hasCompanies && !locked,
     retry: (count, err) => !(err instanceof ApiError && err.needsPassword) && count < 1,
@@ -73,6 +75,8 @@ export function App(): React.ReactElement {
   // 국내·해외가 섞였을 때만 통화 토글이 의미를 가진다
   const isMixedMarket = countries.size > 1;
   const hasUsCompanies = countries.has('US');
+  // 액면분할 조정은 주당 지표에만 영향을 준다. 매출액만 보고 있으면 띄울 이유가 없다.
+  const hasPerShareMetric = state.metrics.some((m) => PER_SHARE_METRICS.has(m));
 
   const addCompany = useCallback(
     (company: CompanySearchResult) => {
@@ -144,6 +148,24 @@ export function App(): React.ReactElement {
                   isMixed={isMixedMarket}
                   disabled={state.normalize}
                 />
+                {hasPerShareMetric && (
+                  <label className="flex max-w-xs items-start gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={state.adjustSplits}
+                      onChange={(e) => update({ adjustSplits: e.target.checked })}
+                      className="mt-0.5 h-5 w-5 accent-[#0072B2]"
+                    />
+                    <span>
+                      <span className="font-medium">액면분할 조정</span>
+                      <span className="mt-0.5 block text-sm text-[var(--ink-muted)]">
+                        분할 이전 구간을 분할 후 기준으로 환산해 흐름이 이어지게 합니다.
+                        끄면 각 시점 공시값 그대로라 분할 지점에서 선이 끊깁니다.
+                        PER·PBR 은 어느 쪽이든 같습니다.
+                      </span>
+                    </span>
+                  </label>
+                )}
                 <label className="flex items-center gap-2.5">
                   <input
                     type="checkbox"
@@ -180,7 +202,10 @@ export function App(): React.ReactElement {
       <footer className="text-sm text-[var(--ink-muted)]">
         재무데이터: 금융감독원 DART(국내) · SEC EDGAR(미국). 각 연도 사업보고서 공시값 기준.
         <br />
-        주가: 한국거래소(KRX) 일별매매정보, 액면분할 미조정 실거래 종가. 환율: ECB.
+        주가: 한국거래소(KRX) 일별매매정보, 실거래 종가. 환율: ECB.
+        <br />
+        주당 지표(EPS · BPS · 주가)는 기본적으로 액면분할을 조정해 보여줍니다 — 각 시점
+        공시값이 필요하면 「액면분할 조정」을 끄세요. PER · PBR 은 어느 쪽이든 같습니다.
         <br />
         투자 판단의 근거로 쓰기 전에 원문 공시를 확인하세요.
       </footer>

@@ -149,12 +149,32 @@ export function splitAdjustmentFactors(
   return factors;
 }
 
-/** 사용자에게 보여줄 문구 */
-export function describeSplit(event: SplitEvent): string {
+/** 분할 비율을 사람이 읽는 형태로 */
+function describeRatio(event: SplitEvent): string {
+  const snapped = snapToStandardRatio(event.ratio);
   if (event.kind === 'SPLIT') {
-    return `${event.period}년경 액면분할 추정 (주식수 ${event.ratio.toFixed(1)}배). ` +
-      `주당 지표는 각 시점 공시값이라 이 구간에서 불연속입니다.`;
+    return snapped === null
+      ? `액면분할 추정 (주식수 ${event.ratio.toFixed(1)}배)`
+      : `${snapped}:1 액면분할`;
   }
-  return `${event.period}년경 액면병합 추정 (주식수 ${(1 / event.ratio).toFixed(1)}:1). ` +
-    `주당 지표는 각 시점 공시값이라 이 구간에서 불연속입니다.`;
+  return snapped === null
+    ? `액면병합 추정 (주식수 ${(1 / event.ratio).toFixed(1)}:1)`
+    : `1:${Math.round(1 / snapped)} 액면병합`;
+}
+
+/**
+ * 사용자에게 보여줄 문구.
+ *
+ * 조정 여부에 따라 할 말이 정반대다. 조정을 껐으면 "선이 끊긴 이유"를
+ * 알려야 하고, 켰으면 "값이 공시 원값과 다른 이유"를 알려야 한다.
+ */
+export function describeSplit(event: SplitEvent, adjusted = false): string {
+  const what = `${event.period}년 ${describeRatio(event)}`;
+
+  if (adjusted) {
+    return `${what}. 이전 구간의 주당 지표를 분할 후 기준으로 환산해 흐름이 이어집니다 — ` +
+      `그 시점 공시값과는 다릅니다.`;
+  }
+  return `${what}. 주당 지표가 각 시점 공시값이라 이 구간에서 선이 끊깁니다 — ` +
+    `'액면분할 조정'을 켜면 이어집니다.`;
 }

@@ -20,13 +20,25 @@ describe('detectSplits — 삼성전자 50:1 액면분할', () => {
     expect(events[0]?.ratio).toBeCloseTo(46.5, 1);
   });
 
-  it('설명 문구가 불연속을 알린다', () => {
+  it('조정을 끄면 선이 끊기는 이유를 알린다', () => {
     const [event] = detectSplits(periods, shares);
     const text = describeSplit(event!);
 
     expect(text).toContain('2018');
-    expect(text).toContain('액면분할');
-    expect(text).toContain('불연속');
+    // 원시 비율 46.5 가 아니라 실제 분할 비율로 말해야 한다
+    expect(text).toContain('50:1 액면분할');
+    expect(text).toContain('끊깁니다');
+  });
+
+  it('조정을 켜면 공시 원값과 다르다는 것을 알린다', () => {
+    const [event] = detectSplits(periods, shares);
+    const text = describeSplit(event!, true);
+
+    expect(text).toContain('50:1 액면분할');
+    expect(text).toContain('이어집니다');
+    expect(text).toContain('공시값과는 다릅니다');
+    // 조정했는데 "끊긴다"고 하면 정반대 안내가 된다
+    expect(text).not.toContain('끊깁니다');
   });
 });
 
@@ -64,7 +76,7 @@ describe('detectSplits — 액면병합', () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]?.kind).toBe('REVERSE_SPLIT');
-    expect(describeSplit(events[0]!)).toContain('5.0:1');
+    expect(describeSplit(events[0]!)).toContain('1:5 액면병합');
   });
 });
 
@@ -147,5 +159,45 @@ describe('splitAdjustmentFactors — 주가와 EPS 기준 맞추기', () => {
       [100, 1000, 5000], // 10:1 그리고 5:1
     );
     expect(factors).toEqual([50, 5, 1]);
+  });
+});
+
+describe('splitAdjustmentFactors — 비율 지표는 조정에 불변이다', () => {
+  // 이 설계 전체가 이 성질에 기대고 있다.
+  // 주당 지표를 조정해도 PER·PBR 이 그대로여야, 흐름을 이어 보여주면서
+  // 밸류에이션은 공시 기준 그대로라고 말할 수 있다.
+  const periods = ['2016', '2017', '2018', '2019'];
+  const shares = [128_386_494, 128_386_494, 5_969_782_550, 5_969_782_550];
+
+  // 삼성전자 실제 값 (미조정)
+  const eps = [157_967, 299_868, 6_461, 3_166];
+  const price = [1_802_000, 2_548_000, 38_700, 55_800];
+
+  it('주가와 EPS 를 같은 계수로 나누면 PER 이 보존된다', () => {
+    const factors = splitAdjustmentFactors(periods, shares);
+
+    for (const [i] of periods.entries()) {
+      const factor = factors[i]!;
+      const rawPer = price[i]! / eps[i]!;
+      const adjustedPer = price[i]! / factor / (eps[i]! / factor);
+      expect(adjustedPer).toBeCloseTo(rawPer, 10);
+    }
+  });
+
+  it('분할 전 구간에만 계수가 붙는다', () => {
+    const factors = splitAdjustmentFactors(periods, shares);
+    // 2018년 분할이므로 2016·2017 만 50, 이후는 1
+    expect(factors).toEqual([50, 50, 1, 1]);
+  });
+
+  it('조정 후 주당 지표가 이어진다', () => {
+    const factors = splitAdjustmentFactors(periods, shares);
+    const adjusted = eps.map((v, i) => v / factors[i]!);
+
+    // 조정 전: 299,868 -> 6,461 (98% 급락)
+    expect(eps[2]! / eps[1]!).toBeLessThan(0.05);
+    // 조정 후: 5,997 -> 6,461 (완만한 증가)
+    expect(adjusted[2]! / adjusted[1]!).toBeGreaterThan(1);
+    expect(adjusted[2]! / adjusted[1]!).toBeLessThan(1.2);
   });
 });

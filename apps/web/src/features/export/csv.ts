@@ -84,7 +84,9 @@ export function buildCsv(data: SeriesResponse, options: CsvOptions = {}): string
     }
 
     for (const metric of data.series) {
-      lines.push(toRow(['계산식', metric.label, metric.formula]));
+      // 기준(basis)을 함께 적는다. 액면분할 조정 여부에 따라 주당 지표의
+      // 값 자체가 달라지므로, 파일만 보고도 어느 기준인지 알아야 한다.
+      lines.push(toRow(['계산식', metric.label, metric.formula, metric.basis]));
     }
 
     lines.push('');

@@ -154,6 +154,7 @@ export interface SeriesParams {
   toYear: number;
   normalize: boolean;
   currency: 'KRW' | 'USD' | 'native';
+  adjustSplits: boolean;
 }
 
 export function fetchSeries(params: SeriesParams): Promise<SeriesResponse> {
@@ -164,6 +165,7 @@ export function fetchSeries(params: SeriesParams): Promise<SeriesResponse> {
     to: String(params.toYear),
     normalize: String(params.normalize),
     currency: params.currency,
+    adjustSplits: String(params.adjustSplits),
   });
 }
 

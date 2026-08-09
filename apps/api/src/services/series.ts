@@ -17,6 +17,7 @@ import {
   type Currency,
   type MetricId,
   type SeriesWarning,
+  type SplitEvent,
 } from '@fincompare/shared';
 import type { Db } from '../db/client.js';
 import type { DartClient } from '../adapters/dart/client.js';
@@ -46,6 +47,16 @@ export interface SeriesRequest {
    * 기업 성과가 아니라 환율을 보게 된다.
    */
   currency: 'KRW' | 'USD' | 'native';
+  /**
+   * 액면분할 이전 구간의 주당 지표를 분할 후 기준으로 환산한다.
+   *
+   * 끄면 각 시점 공시값 그대로라 분할 지점에서 선이 끊긴다 — 삼성전자
+   * 2018년 EPS 가 299,868 -> 6,461 로 떨어져 이익이 98% 증발한 것처럼 보인다.
+   *
+   * PER·PBR 은 켜든 끄든 같다. 분자(주가)와 분모(EPS·BPS)가 같은 계수로
+   * 나뉘므로 비율이 보존된다.
+   */
+  adjustSplits: boolean;
 }
 
 export interface SeriesCompany {
@@ -158,6 +169,21 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
 
   if (needsPrice) applySplitAdjustment(deps, companies, facts, periods, warnings);
 
+  /*
+   * 분할 지점은 조정하기 전에 찾아 둔다.
+   * 조정하고 나면 주식수 시계열이 매끄러워져서 다시는 찾을 수 없다.
+   */
+  const splitEvents = new Map<string, SplitEvent[]>();
+  for (const company of companies) {
+    const byYear = facts.get(company.id);
+    if (byYear === undefined) continue;
+    const shares = periods.map((p) => byYear.get(Number(p))?.get('sharesOutstanding') ?? null);
+    const events = detectSplits(periods, shares);
+    if (events.length > 0) splitEvents.set(company.id, events);
+  }
+
+  if (request.adjustSplits) applyDisplaySplitAdjustment(companies, facts, periods);
+
   // 정규화 모드에서는 환산하지 않는다. 성장률에 환율 변동이 섞이면
   // 기업 성과가 아니라 환율을 보게 된다.
   const targetCurrency = request.normalize ? 'native' : request.currency;
@@ -256,7 +282,10 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
       // 정규화 모드에서는 단위가 의미를 잃는다. 시작 시점 = 100 기준의 지수다.
       unit: request.normalize ? '지수 (시작=100)' : meta.unit,
       formula: METRIC_FORMULA[metricId],
-      basis: 'K-IFRS 연결 · 지배주주 기준',
+      basis:
+        request.adjustSplits && PER_SHARE_METRICS.has(metricId)
+          ? '연결 · 지배주주 기준 · 액면분할 조정'
+          : '연결 · 지배주주 기준 · 각 시점 공시값',
       data,
       ...(request.normalize ? { normalizedBase } : {}),
     };
@@ -276,22 +305,20 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
 
   if (drawnPerShareMetric !== undefined) {
     for (const company of companies) {
-      const byYear = facts.get(company.id);
-      if (byYear === undefined) continue;
+      // 조정 전에 찾아 둔 이벤트를 쓴다. 지금 다시 찾으면 조정된 주식수라 안 잡힌다.
+      const events = splitEvents.get(company.id);
+      if (events === undefined) continue;
 
       // 그 기업의 값이 하나도 없으면 그 기업에는 알릴 것이 없다
       const companyHasValues = (drawnPerShareMetric.data[company.id] ?? []).some((v) => v !== null);
       if (!companyHasValues) continue;
 
-      const shareSeries = periods.map(
-        (p) => byYear.get(Number(p))?.get('sharesOutstanding') ?? null,
-      );
-      for (const event of detectSplits(periods, shareSeries)) {
+      for (const event of events) {
         warnings.push({
           companyId: company.id,
           metricId: drawnPerShareMetric.metricId,
           code: 'SHARE_COUNT_JUMP',
-          detail: describeSplit(event),
+          detail: describeSplit(event, request.adjustSplits),
         });
       }
     }
@@ -332,6 +359,52 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
  *
  * 미조정 주가를 주는 소스(KRX, Tiingo)에서는 아무것도 하지 않는다.
  */
+/**
+ * 액면분할 이전 구간의 주당 지표를 분할 후 기준으로 환산한다 (제자리 수정).
+ *
+ * 왜 필요한가: 주당 지표는 각 시점 공시값이라 분할 지점에서 선이 끊긴다.
+ * 삼성전자 2018년 50:1 분할이면 EPS 가 299,868 -> 6,461 로 떨어져
+ * 이익이 98% 증발한 것처럼 보인다. 실제로는 주식 수가 50배 늘었을 뿐이다.
+ *
+ * BASE 값에만 손대면 파생지표는 저절로 맞는다:
+ *   주가 / 계수, EPS / 계수, 주식수 * 계수
+ *   -> BPS(자본/주식수)도 자동으로 /계수
+ *   -> PER(주가/EPS)·PBR(주가/BPS)은 분자·분모가 같이 나뉘어 값이 그대로다
+ *
+ * 자본·매출 같은 총액 지표는 분할의 영향을 받지 않으므로 건드리지 않는다.
+ */
+function applyDisplaySplitAdjustment(
+  companies: readonly { id: string }[],
+  facts: Map<string, Map<number, Map<BaseMetricId, number | null>>>,
+  periods: readonly string[],
+): void {
+  for (const company of companies) {
+    const byYear = facts.get(company.id);
+    if (byYear === undefined) continue;
+
+    const shares = periods.map((p) => byYear.get(Number(p))?.get('sharesOutstanding') ?? null);
+    const factors = splitAdjustmentFactors(periods, shares);
+    if (factors.every((f) => f === 1)) continue;
+
+    for (const [index, period] of periods.entries()) {
+      const factor = factors[index] ?? 1;
+      if (factor === 1) continue;
+
+      const metrics = byYear.get(Number(period));
+      if (metrics === undefined) continue;
+
+      for (const perShare of ['eps', 'closePrice'] as const) {
+        const value = metrics.get(perShare);
+        if (value != null) metrics.set(perShare, value / factor);
+      }
+      for (const shareCount of ['sharesOutstanding', 'sharesTotal'] as const) {
+        const value = metrics.get(shareCount);
+        if (value != null) metrics.set(shareCount, value * factor);
+      }
+    }
+  }
+}
+
 function applySplitAdjustment(
   deps: SeriesDeps,
   companies: readonly { id: string; country: string; market: string; stockCode: string | null; ticker: string | null; fiscalYearEndMonth: number }[],

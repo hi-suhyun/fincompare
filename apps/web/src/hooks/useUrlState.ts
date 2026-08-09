@@ -32,6 +32,11 @@ export interface AppState {
    * 시작=100 으로 맞추면 모두 같은 단위가 되므로 그 문제가 사라진다.
    */
   overlay: boolean;
+  /**
+   * 액면분할 이전 구간의 주당 지표를 분할 후 기준으로 환산한다.
+   * 기본이 켜짐이다 — 끄면 분할 지점에서 선이 끊겨 추이를 읽을 수 없다.
+   */
+  adjustSplits: boolean;
 }
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -47,6 +52,7 @@ export const DEFAULT_STATE: AppState = {
   // 국내 기업만 볼 때는 환산이 불필요하다. 해외를 섞으면 화면에서 바꾸면 된다.
   currency: 'native',
   overlay: false,
+  adjustSplits: true,
 };
 
 function clampYear(value: number, fallback: number): number {
@@ -85,6 +91,8 @@ function parseState(search: string): AppState {
     currency: parseCurrency(params.get('cur')),
     // 정규화 없이 겹치면 축이 거짓말을 한다. URL 로 들어와도 강제한다.
     overlay: normalize && params.get('ov') === '1',
+    // 기본이 켜짐이라 꺼진 경우만 URL 에 남는다
+    adjustSplits: params.get('adj') !== '0',
   };
 }
 
@@ -101,6 +109,7 @@ function toSearch(state: AppState): string {
   if (state.normalize) params.set('n', '1');
   if (state.overlay) params.set('ov', '1');
   if (state.currency !== 'native') params.set('cur', state.currency);
+  if (!state.adjustSplits) params.set('adj', '0');
   return params.toString();
 }
 
