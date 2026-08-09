@@ -1,9 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "regions": [
+    "icn1"
+  ],
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm --filter @fincompare/web build",
   "outputDirectory": "apps/web/dist",
-  "framework": null,
   "functions": {
     "api/index.ts": {
       "memory": 1024,
