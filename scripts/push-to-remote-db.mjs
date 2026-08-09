@@ -16,6 +16,14 @@ import { createInterface } from 'node:readline';
 const args = process.argv.slice(2);
 // 원격에 넣기 전에 로컬 파일로 리허설할 때 쓴다
 const allowLocal = args.includes('--allow-local');
+/**
+ * 덤프에 들어 있는 테이블을 먼저 지운다.
+ *
+ * 덤프는 CREATE TABLE 부터 들어 있어서, 이미 테이블이 있는 DB 에 그대로
+ * 넣으면 "already exists" 로 멈춘다. 억지로 넘겨도 이번엔 기본키가 부딪힌다.
+ * 두 번째 이후 올릴 때는 이 플래그가 필요하다.
+ */
+const reset = args.includes('--reset');
 const dumpPath = args.find((a) => !a.startsWith('--'));
 const url = process.env['DATABASE_URL'];
 const authToken = process.env['TURSO_AUTH_TOKEN'];
@@ -79,6 +87,22 @@ async function flush() {
 
 console.log(`원격 DB: ${url}`);
 console.log(`덤프: ${dumpPath}`);
+
+if (reset) {
+  // 덤프가 어떤 테이블을 만드는지 먼저 읽어서, 그 테이블만 지운다.
+  // DB 전체를 비우지 않는 이유는 덤프에 없는 테이블까지 날리지 않기 위해서다.
+  const tables = new Set();
+  for await (const statement of statements(dumpPath)) {
+    const match = /^CREATE TABLE (?:IF NOT EXISTS )?[\`"']?([A-Za-z_][A-Za-z0-9_]*)/i.exec(statement);
+    if (match?.[1] !== undefined) tables.add(match[1]);
+  }
+
+  console.log(`\n교체할 테이블 ${tables.size}개: ${[...tables].join(', ')}`);
+  // 외래키를 켠 채로 지우면 순서에 걸린다. 어차피 전부 다시 만든다.
+  await client.execute('PRAGMA foreign_keys = OFF');
+  for (const table of tables) await client.execute(`DROP TABLE IF EXISTS ${table}`);
+  console.log('기존 테이블 삭제 완료\n');
+}
 
 for await (const statement of statements(dumpPath)) {
   if (SKIP.test(statement)) continue;
