@@ -212,6 +212,26 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
         return result.value;
       });
 
+      /*
+       * 구간 전체가 비어 있으면 여기서 알린다.
+       *
+       * 수집 단계의 경고만으로는 부족하다. 이미 저장된 연도는 수집을 건너뛰므로,
+       * 미리 받아둔 DB(배포판이 그렇다)에서는 경고가 아예 만들어지지 않는다.
+       * 그러면 사용자는 이유 없는 빈 차트를 보게 된다 — 값이 없는 것과
+       * 회사가 그 항목을 보고하지 않는 것은 다른 이야기다.
+       *
+       * 예: ExxonMobil 은 OperatingIncomeLoss 를 태깅하지 않는다. 세전이익으로
+       * 대신하면 이자·투자손익이 섞여 영업이익이 아니게 되므로 채우지 않는다.
+       */
+      if (raw.every((value) => value === null)) {
+        warnings.push({
+          companyId: company.id,
+          metricId,
+          code: 'METRIC_NOT_TAGGED',
+          detail: '이 기업은 해당 기간에 이 항목을 공시하지 않았습니다',
+        });
+      }
+
       if (request.normalize) {
         const normalized = normalizeToBase(raw);
         data[company.id] = normalized.values;
