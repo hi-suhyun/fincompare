@@ -5,6 +5,13 @@ interface Props {
   onChange: (metrics: MetricId[]) => void;
   /** 미국 기업이 선택되어 있는지. 밸류에이션 안내를 그때만 띄운다 */
   hasUsCompanies: boolean;
+  /**
+   * 이 인스턴스에 미국 주가 키가 꽂혀 있는지.
+   *
+   * 가족 배포판은 꺼져 있고(약관상 남에게 보여줄 수 없다),
+   * 자기 키로 셀프호스트하면 켜진다. 안내 문구가 거짓말하지 않도록 서버에 물어본다.
+   */
+  usPricesEnabled: boolean;
 }
 
 /**
@@ -32,7 +39,12 @@ const GROUPS: ReadonlyArray<{ title: string; metrics: readonly MetricId[] }> = [
  */
 const NEEDS_PRICE: ReadonlySet<MetricId> = new Set(['closePrice', 'per', 'pbr', 'marketCap']);
 
-export function MetricPicker({ selected, onChange, hasUsCompanies }: Props): React.ReactElement {
+export function MetricPicker({
+  selected,
+  onChange,
+  hasUsCompanies,
+  usPricesEnabled,
+}: Props): React.ReactElement {
   const isFull = selected.length >= MAX_METRICS;
 
   const toggle = (metric: MetricId): void => {
@@ -61,8 +73,8 @@ export function MetricPicker({ selected, onChange, hasUsCompanies }: Props): Rea
           {group.metrics.map((metric) => {
             const active = selected.includes(metric);
             const disabled = !active && isFull;
-            // 미국 기업을 안 골랐으면 전부 정상 계산되므로 표시하지 않는다
-            const partial = hasUsCompanies && NEEDS_PRICE.has(metric);
+            // 미국 기업을 안 골랐거나 미국 주가가 켜져 있으면 전부 정상 계산된다
+            const partial = hasUsCompanies && !usPricesEnabled && NEEDS_PRICE.has(metric);
 
             return (
               <button
@@ -98,11 +110,13 @@ export function MetricPicker({ selected, onChange, hasUsCompanies }: Props): Rea
         </div>
       ))}
 
-      {hasUsCompanies && (
+      {hasUsCompanies && !usPricesEnabled && (
         <p className="text-sm text-[var(--ink-muted)]">
           ◐ 표시된 지표는 <strong className="font-medium">국내 기업만</strong> 값이 나옵니다.
           미국 기업은 주가 데이터를 쓰지 않습니다 — 무료 주가 API 가 데이터를 다른 사람에게
           보여주는 것을 약관으로 금지하기 때문입니다. 재무지표는 미국도 정상 제공됩니다.
+          <br />
+          직접 설치해 본인 API 키를 넣으면 미국 밸류에이션도 볼 수 있습니다.
         </p>
       )}
     </fieldset>

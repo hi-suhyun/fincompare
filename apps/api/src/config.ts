@@ -16,6 +16,11 @@ const ConfigSchema = z.object({
   /** libsql:// 원격 DB 를 쓸 때만 필요하다. 로컬 파일에는 안 쓴다 */
   TURSO_AUTH_TOKEN: z.string().default(''),
   PORT: z.coerce.number().int().positive().default(3100),
+  /**
+   * 가족 전용 접근 비밀번호. 비워 두면 게이트를 걸지 않는다 (로컬 개발).
+   * 배포에서는 반드시 채운다 — URL 이 알려지면 DART 일일 한도가 공유된다.
+   */
+  ACCESS_PASSWORD: z.string().default(''),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

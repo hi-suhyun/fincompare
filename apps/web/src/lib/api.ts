@@ -16,11 +16,55 @@ export class ApiError extends Error {
     super(message);
     this.name = 'ApiError';
   }
+
+  /** 비밀번호를 물어야 하는 상태 */
+  get needsPassword(): boolean {
+    return this.status === 401;
+  }
+}
+
+/**
+ * 가족 전용 게이트를 통과하기 위한 비밀번호.
+ *
+ * 서버가 쿠키를 구워 주므로 보통은 한 번만 쓰인다.
+ * 브라우저에 남겨 두는 이유는 쿠키가 만료되거나 지워졌을 때 다시 묻지 않기 위해서다.
+ * 공개 데이터에 대한 호출 한도 보호용이라 비밀 등급이 높지 않다.
+ */
+const PASSWORD_KEY = 'fincompare.accessPassword';
+
+export function getStoredPassword(): string | null {
+  try {
+    return window.localStorage.getItem(PASSWORD_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function storePassword(password: string): void {
+  try {
+    window.localStorage.setItem(PASSWORD_KEY, password);
+  } catch {
+    // 시크릿 모드 등에서 막힐 수 있다. 쿠키만으로도 이번 세션은 돈다.
+  }
+}
+
+export function clearStoredPassword(): void {
+  try {
+    window.localStorage.removeItem(PASSWORD_KEY);
+  } catch {
+    /* 무시 */
+  }
 }
 
 async function request<T>(path: string, params: Record<string, string>): Promise<T> {
   const query = new URLSearchParams(params);
-  const response = await fetch(`${BASE_URL}${path}?${query.toString()}`);
+  const password = getStoredPassword();
+
+  const response = await fetch(`${BASE_URL}${path}?${query.toString()}`, {
+    // 접근 게이트 쿠키를 주고받는다
+    credentials: 'include',
+    ...(password === null ? {} : { headers: { 'X-Access-Password': password } }),
+  });
 
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as {
@@ -121,6 +165,8 @@ export interface HealthResponse {
   ok: boolean;
   companies: number;
   missingKeys: string[];
+  /** 이 인스턴스가 실제로 주가를 붙일 수 있는지 (셀프호스트는 키에 따라 다르다) */
+  capabilities?: { krPrices: boolean; usPrices: boolean };
 }
 
 export function fetchHealth(): Promise<HealthResponse> {

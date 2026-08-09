@@ -4,6 +4,7 @@ import { loadConfig, describeMissingKeys } from './config.js';
 import { SourceError } from './core/errors.js';
 import { createDb } from './db/client.js';
 import { companies } from './db/schema.js';
+import { createAccessGate } from './middleware/accessGate.js';
 import { createCompaniesRouter } from './routes/companies.js';
 import { createSeriesRouter } from './routes/series.js';
 import { DartClient } from './adapters/dart/client.js';
@@ -94,17 +95,35 @@ const usPrice = buildUsPriceAdapter();
 const app = express();
 app.use(express.json());
 
-// 프론트는 Vite 개발 서버(5173)에서 뜬다. 가족 전용 배포라 오리진을 넓게 열 이유가 없다.
+/**
+ * CORS.
+ *
+ * 배포에서는 프론트와 API 가 같은 오리진이라 CORS 가 필요 없다.
+ * 로컬 개발에서만 Vite(5173) 에서 오는 요청을 허용한다.
+ *
+ * credentials 를 켜야 접근 게이트 쿠키가 오간다. 그래서 오리진을 * 로 둘 수 없고
+ * 정확히 지정해야 한다 — 어차피 가족 전용이라 넓게 열 이유도 없다.
+ */
+const ALLOWED_ORIGIN = 'http://localhost:5173';
+
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
+  const origin = req.headers.origin;
+  if (origin === ALLOWED_ORIGIN) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,X-Access-Password');
   if (req.method === 'OPTIONS') {
     res.sendStatus(204);
     return;
   }
   next();
 });
+
+// 헬스체크는 게이트 밖에 둔다. 배포 상태 확인에 비밀번호가 필요하면 곤란하다.
+app.use(createAccessGate({ password: config.ACCESS_PASSWORD, publicPaths: ['/api/health'] }));
 
 app.get('/api/health', (_req, res, next) => {
   handle.db
@@ -115,6 +134,12 @@ app.get('/api/health', (_req, res, next) => {
         ok: true,
         companies: row?.value ?? 0,
         missingKeys: describeMissingKeys(config),
+        // 이 인스턴스가 주가를 붙일 수 있는지. 프론트가 안내 문구를 여기에 맞춘다.
+        // 셀프호스트에서 본인 Tiingo 키를 넣으면 미국 밸류에이션도 켜진다.
+        capabilities: {
+          krPrices: krPrice !== null,
+          usPrices: usPrice !== null,
+        },
       });
     })
     .catch(next);

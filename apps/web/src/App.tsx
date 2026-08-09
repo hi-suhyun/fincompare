@@ -1,24 +1,27 @@
 import { MAX_COMPANIES, type Country } from '@fincompare/shared';
 import { useQuery } from '@tanstack/react-query';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChartStack } from './charts/ChartStack.js';
 import { CompanyPicker } from './features/company-picker/CompanyPicker.js';
 import { MetricPicker } from './features/metric-picker/MetricPicker.js';
 import { PeriodPicker } from './features/period-picker/PeriodPicker.js';
 import { Presets } from './features/Presets.js';
 import { CurrencyToggle } from './features/CurrencyToggle.js';
+import { AccessGate } from './features/AccessGate.js';
 import { useUrlState } from './hooks/useUrlState.js';
-import { ApiError, fetchSeries, type CompanySearchResult } from './lib/api.js';
+import { ApiError, fetchHealth, fetchSeries, type CompanySearchResult } from './lib/api.js';
 
 export function App(): React.ReactElement {
   const [state, update] = useUrlState();
+  // 게이트에 막히면 비밀번호를 묻는다. 통과하면 다시 조회한다.
+  const [locked, setLocked] = useState(false);
   const [logScale, setLogScale] = useState(false);
   // 검색으로 고른 이름은 시리즈 응답이 오기 전에도 칩에 보여야 한다
   const [pickedNames, setPickedNames] = useState<Map<string, string>>(new Map());
 
   const hasCompanies = state.companyIds.length > 0;
 
-  const { data, isPending, isFetching, error } = useQuery({
+  const { data, isPending, isFetching, error, refetch } = useQuery({
     queryKey: [
       'series',
       state.companyIds,
@@ -37,8 +40,22 @@ export function App(): React.ReactElement {
         normalize: state.normalize,
         currency: state.currency,
       }),
-    enabled: hasCompanies,
+    enabled: hasCompanies && !locked,
+    retry: (count, err) => !(err instanceof ApiError && err.needsPassword) && count < 1,
   });
+
+  useEffect(() => {
+    if (error instanceof ApiError && error.needsPassword) setLocked(true);
+  }, [error]);
+
+  // 이 인스턴스의 능력치. 지표 안내 문구가 실제 설정과 어긋나지 않게 한다.
+  const { data: health } = useQuery({
+    queryKey: ['health'],
+    queryFn: fetchHealth,
+    staleTime: Infinity,
+    retry: false,
+  });
+  const usPricesEnabled = health?.capabilities?.usPrices ?? false;
 
   const names = useMemo(() => {
     const map = new Map(pickedNames);
@@ -70,6 +87,17 @@ export function App(): React.ReactElement {
     [state.companyIds, update],
   );
 
+  if (locked) {
+    return (
+      <AccessGate
+        onUnlocked={() => {
+          setLocked(false);
+          void refetch();
+        }}
+      />
+    );
+  }
+
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5 px-4 py-6">
       <header>
@@ -97,6 +125,7 @@ export function App(): React.ReactElement {
               selected={state.metrics}
               onChange={(metrics) => update({ metrics })}
               hasUsCompanies={hasUsCompanies}
+              usPricesEnabled={usPricesEnabled}
             />
             <hr className="border-[var(--line)]" />
             <div className="flex flex-wrap items-start justify-between gap-4">
