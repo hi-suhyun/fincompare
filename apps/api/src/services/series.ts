@@ -223,7 +223,15 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
        * 예: ExxonMobil 은 OperatingIncomeLoss 를 태깅하지 않는다. 세전이익으로
        * 대신하면 이자·투자손익이 섞여 영업이익이 아니게 되므로 채우지 않는다.
        */
-      if (raw.every((value) => value === null)) {
+      //
+      // 단 이미 다른 경고가 그 이유를 말하고 있으면 덧붙이지 않는다.
+      // 미국 PER 은 PRICE_UNAVAILABLE 이 "주가를 연동하지 않아서"라고
+      // 정확히 설명하는데, 여기에 일반적인 문구를 얹으면 소음만 는다.
+      const alreadyExplained = warnings.some(
+        (w) => w.companyId === company.id && w.metricId === metricId,
+      );
+
+      if (!alreadyExplained && raw.every((value) => value === null)) {
         warnings.push({
           companyId: company.id,
           metricId,
