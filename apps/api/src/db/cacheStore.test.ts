@@ -29,7 +29,7 @@ describe('SqliteCacheStore', () => {
     );
 
     expect(result.rows.map((r) => String(r['name'])).sort()).toEqual([
-      'analyst_targets',
+      'analyst_estimates',
       'companies',
       'company_aliases',
       'fetch_log',

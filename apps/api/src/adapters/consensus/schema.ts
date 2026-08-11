@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * FMP 응답 스키마.
+ * FMP stable API 응답 스키마.
  *
  * 느슨하게 받는다. FMP 는 같은 필드를 기업마다 문자열/숫자로 섞어 주고,
  * 요금제에 따라 필드가 통째로 빠지기도 한다. 엄격하게 잡으면 한 기업의
@@ -18,30 +18,31 @@ const LooseNumber = z
     return Number.isFinite(n) ? n : null;
   });
 
+const LooseCount = LooseNumber.transform((v) => (v === null ? 0 : Math.max(0, Math.round(v))));
+
 /**
- * 개별 목표주가.
+ * 연간 추정치.
  *
- * publishedDate 가 있어야 "그때의 의견"이 성립한다. 이 필드가 없으면
- * 과거 비교 자체가 불가능하므로 필수로 잡는다.
+ * date 는 회계기간 종료일이다 (NVDA 는 2024-01-25 처럼 1월). 연도만 잘라
+ * 쓰면 결산월이 다른 기업이 실제값과 다른 해에 놓인다.
  */
-export const FmpPriceTargetSchema = z.object({
+export const FmpEstimateSchema = z.object({
   symbol: z.string(),
-  publishedDate: z.string(),
-  priceTarget: LooseNumber,
-  /** 발행 당시 주가. 없는 요금제가 있어 선택 */
-  priceWhenPosted: LooseNumber,
-  analystCompany: z.string().nullish(),
-  analystName: z.string().nullish(),
+  date: z.string(),
+  revenueLow: LooseNumber,
+  revenueAvg: LooseNumber,
+  revenueHigh: LooseNumber,
+  epsLow: LooseNumber,
+  epsAvg: LooseNumber,
+  epsHigh: LooseNumber,
+  numAnalystsRevenue: LooseCount,
+  numAnalystsEps: LooseCount,
 });
 
-export const FmpPriceTargetListSchema = z.array(FmpPriceTargetSchema);
+export const FmpEstimateListSchema = z.array(FmpEstimateSchema);
 
-/**
- * 현재 컨센서스. 과거 이력을 못 받을 때의 대체재다.
- *
- * 이걸로는 "그때 맞았나"를 답할 수 없다 — 지금 시점의 의견 하나뿐이다.
- */
-export const FmpConsensusSchema = z.object({
+/** 현재 목표주가 컨센서스 */
+export const FmpPriceTargetConsensusSchema = z.object({
   symbol: z.string(),
   targetHigh: LooseNumber,
   targetLow: LooseNumber,
@@ -49,15 +50,16 @@ export const FmpConsensusSchema = z.object({
   targetMedian: LooseNumber,
 });
 
-export const FmpConsensusListSchema = z.array(FmpConsensusSchema);
+export const FmpPriceTargetConsensusListSchema = z.array(FmpPriceTargetConsensusSchema);
 
 /**
- * FMP 는 요금제 밖 요청에도 200 으로 응답하면서 본문에 안내 문구를 담는다.
- * 이걸 데이터로 착각하면 "목표주가 0건"으로 조용히 넘어간다.
+ * FMP 는 요금제 밖 요청을 200 이 아닌 402/403 으로 주기도 하고,
+ * 200 본문에 안내 문구를 담기도 한다. 후자를 데이터로 착각하면
+ * "추정치 0건" 으로 조용히 넘어간다.
  */
-export const FmpErrorSchema = z.object({
-  'Error Message': z.string(),
-});
+export const FmpErrorSchema = z.union([
+  z.object({ 'Error Message': z.string() }),
+  z.object({ message: z.string() }),
+]);
 
-export type FmpPriceTarget = z.infer<typeof FmpPriceTargetSchema>;
-export type FmpConsensus = z.infer<typeof FmpConsensusSchema>;
+export type FmpEstimate = z.infer<typeof FmpEstimateSchema>;

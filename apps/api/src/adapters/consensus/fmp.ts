@@ -1,17 +1,17 @@
-import type { AnalystTarget } from '@fincompare/shared';
+import type { PriceTargetConsensus } from '@fincompare/shared';
 import { CacheLayer, TTL_MS, buildCacheKey } from '../../core/cache.js';
 import { SourceError } from '../../core/errors.js';
 import { SourceClient } from '../../core/http.js';
 import type { RequestQueue } from '../../core/queue.js';
 import {
-  FmpConsensusListSchema,
   FmpErrorSchema,
-  FmpPriceTargetListSchema,
+  FmpEstimateListSchema,
+  FmpPriceTargetConsensusListSchema,
 } from './schema.js';
-import type { ConsensusAdapter, ConsensusResult } from './types.js';
+import type { ConsensusAdapter, ConsensusResult, EstimateRow } from './types.js';
 
 /**
- * Financial Modeling Prep — 애널리스트 목표주가.
+ * Financial Modeling Prep — 애널리스트 컨센서스.
  *
  * ⚠️ 약관: FMP 는 데이터를 "제3자가 접근 가능한 도구나 애플리케이션에 통합"하는
  *    것을 금지한다. Tiingo("보여주거나 공유하지 말라")보다 강하다.
@@ -19,15 +19,20 @@ import type { ConsensusAdapter, ConsensusResult } from './types.js';
  *    가족 배포판에는 키도 데이터도 올리지 않는다.
  *    (docs/00-data-sources.md, scripts/dump-for-deploy.sh 참고)
  *
- * 두 엔드포인트를 쓴다:
- *   price-target            발행일이 붙은 개별 목표가 — "그때의 의견"
- *   price-target-consensus  현재 컨센서스 한 건 — 위가 막혔을 때의 대체재
+ * 무료 티어에서 실제로 쓸 수 있는 것 (2026-08 확인):
+ *   analyst-estimates       ✅ 10년치 연간 EPS·매출 추정 low/avg/high — 핵심
+ *   price-target-consensus  ✅ 현재 컨센서스 한 건
+ *   price-target-news       ❌ 402. 발행일이 붙은 개별 목표가는 유료다
+ *   /api/v4/price-target    ❌ 403. 2025-08-31 자로 폐지된 레거시
  *
- * 무료 티어에서 개별 목표가가 막힐 수 있다. 그때는 조용히 비우지 않고
- * historical: false 로 알려서, 화면이 "과거 비교 불가"라고 말할 수 있게 한다.
+ * 그래서 "그때의 추정이 맞았나"는 목표주가가 아니라 **추정치**로 답한다.
+ * 추정치는 회계연도 단위라 우리 연간 축과 그대로 맞물린다.
  */
 
-const BASE_URL = 'https://financialmodelingprep.com/api/v4';
+const BASE_URL = 'https://financialmodelingprep.com/stable';
+
+/** limit 은 무료 티어에서 10 이 상한이다. 넘기면 402 가 온다 */
+const MAX_ESTIMATE_YEARS = 10;
 
 export interface FmpConsensusAdapterOptions {
   apiKey: string;
@@ -36,18 +41,24 @@ export interface FmpConsensusAdapterOptions {
   fetchImpl?: typeof globalThis.fetch;
 }
 
-/** 요금제 밖 요청은 200 + 안내 문구로 온다. 데이터 없음과 구분해야 한다 */
-function readErrorMessage(json: unknown): string | null {
-  const parsed = FmpErrorSchema.safeParse(json);
-  return parsed.success ? parsed.data['Error Message'] : null;
-}
-
 function decode(bytes: Uint8Array, what: string): unknown {
   try {
     return JSON.parse(new TextDecoder().decode(bytes));
   } catch (cause) {
     throw new SourceError('FMP', 'PARSE', `${what}: JSON 파싱 실패`, { cause });
   }
+}
+
+/** 요금제 밖 요청은 200 본문에 안내 문구로 오기도 한다. 데이터 없음과 구분해야 한다 */
+function throwIfErrorBody(json: unknown, symbol: string): void {
+  const parsed = FmpErrorSchema.safeParse(json);
+  if (!parsed.success) return;
+
+  const message = 'Error Message' in parsed.data ? parsed.data['Error Message'] : parsed.data.message;
+  const kind = /premium|subscription|plan|legacy|upgrade|restricted/i.test(message)
+    ? 'AUTH'
+    : 'INVALID_REQUEST';
+  throw new SourceError('FMP', kind, `${symbol}: ${message}`);
 }
 
 export class FmpConsensusAdapter implements ConsensusAdapter {
@@ -69,128 +80,106 @@ export class FmpConsensusAdapter implements ConsensusAdapter {
     });
   }
 
-  async fetchTargets(ticker: string): Promise<ConsensusResult> {
+  async fetchConsensus(ticker: string): Promise<ConsensusResult> {
     const symbol = ticker.toUpperCase();
 
-    // 1) 발행일이 붙은 개별 목표가를 먼저 시도한다
+    // 추정치가 핵심이라 먼저 받는다. 목표주가는 없어도 기능이 성립한다.
+    const estimates = await this.fetchEstimates(symbol);
+
+    let priceTarget: PriceTargetConsensus | null = null;
+    let priceTargetNote: string | undefined;
     try {
-      const targets = await this.fetchHistorical(symbol);
-      if (targets.length > 0) return { targets, historical: true };
+      priceTarget = await this.fetchPriceTarget(symbol);
     } catch (error) {
-      // 요금제·권한 문제면 대체재로 내려간다. 그 외(네트워크 등)는 그대로 올린다.
-      const recoverable =
-        error instanceof SourceError &&
-        (error.kind === 'AUTH' || error.kind === 'INVALID_REQUEST' || error.kind === 'NOT_FOUND');
-      if (!recoverable) throw error;
+      // 목표주가를 못 받아도 추정치 밴드는 그대로 쓸 수 있다
+      priceTargetNote =
+        error instanceof SourceError ? `목표주가를 받지 못했습니다: ${error.message}` : undefined;
     }
 
-    // 2) 현재 컨센서스만이라도 받는다
-    const current = await this.fetchCurrent(symbol);
     return {
-      targets: current,
-      historical: false,
-      reason:
-        '이 요금제에서는 과거 목표주가를 받을 수 없어 현재 컨센서스만 표시합니다. ' +
-        '과거 시점과의 비교는 할 수 없습니다.',
+      estimates,
+      priceTarget,
+      ...(priceTargetNote === undefined ? {} : { priceTargetNote }),
     };
   }
 
-  private async fetchHistorical(symbol: string): Promise<AnalystTarget[]> {
+  private async fetchEstimates(symbol: string): Promise<EstimateRow[]> {
     const result = await this.client.get({
       // 키는 캐시 키에 넣지 않는다 — DB 에 문자열로 남으면 안 된다
-      url: `${BASE_URL}/price-target?symbol=${symbol}&apikey=${this.apiKey}`,
-      cacheKey: buildCacheKey('FMP', 'price-target', { symbol }),
+      url:
+        `${BASE_URL}/analyst-estimates?symbol=${symbol}&period=annual` +
+        `&limit=${MAX_ESTIMATE_YEARS}&apikey=${this.apiKey}`,
+      cacheKey: buildCacheKey('FMP', 'analyst-estimates', { symbol }),
       ttlMs: TTL_MS.CONSENSUS,
       parse: (bytes) => {
         const json = decode(bytes, symbol);
+        throwIfErrorBody(json, symbol);
 
-        const message = readErrorMessage(json);
-        if (message !== null) {
-          // 권한 문제인지 진짜 오류인지는 문구로만 구분된다
-          const kind = /premium|subscription|plan|not available|upgrade/i.test(message)
-            ? 'AUTH'
-            : 'INVALID_REQUEST';
-          throw new SourceError('FMP', kind, `${symbol}: ${message}`);
-        }
-
-        const parsed = FmpPriceTargetListSchema.safeParse(json);
+        const parsed = FmpEstimateListSchema.safeParse(json);
         if (!parsed.success) {
-          throw new SourceError('FMP', 'PARSE', `${symbol}: 목표주가 응답 스키마 불일치`);
+          throw new SourceError('FMP', 'PARSE', `${symbol}: 추정치 응답 스키마 불일치`);
         }
 
-        const targets: AnalystTarget[] = [];
+        const rows: EstimateRow[] = [];
         for (const row of parsed.data) {
-          // 목표가나 발행일이 없는 행은 쓸 수 없다. 통째로 버리지 말고 그 행만 건너뛴다.
-          if (row.priceTarget === null || row.priceTarget <= 0) continue;
-          const publishedAt = row.publishedDate.slice(0, 10);
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(publishedAt)) continue;
+          const periodEnd = row.date.slice(0, 10);
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) continue;
 
-          targets.push({
-            companyId: `US:${symbol}`,
-            publishedAt,
-            priceTarget: row.priceTarget,
-            priceWhenPosted: row.priceWhenPosted,
-            analystCompany: row.analystCompany ?? row.analystName ?? null,
-            currency: 'USD',
-          });
+          // 지표별로 한 줄씩 펼친다. 아래쪽이 지표 이름만 보고 처리할 수 있게.
+          if (row.epsAvg !== null) {
+            rows.push({
+              periodEnd,
+              metricId: 'eps',
+              low: row.epsLow,
+              avg: row.epsAvg,
+              high: row.epsHigh,
+              count: row.numAnalystsEps,
+            });
+          }
+          if (row.revenueAvg !== null) {
+            rows.push({
+              periodEnd,
+              metricId: 'revenue',
+              low: row.revenueLow,
+              avg: row.revenueAvg,
+              high: row.revenueHigh,
+              count: row.numAnalystsRevenue,
+            });
+          }
         }
-        return targets;
+        return rows;
       },
     });
 
     return result === null ? [] : result.value;
   }
 
-  private async fetchCurrent(symbol: string): Promise<AnalystTarget[]> {
-    const today = new Date().toISOString().slice(0, 10);
-
+  private async fetchPriceTarget(symbol: string): Promise<PriceTargetConsensus | null> {
     const result = await this.client.get({
       url: `${BASE_URL}/price-target-consensus?symbol=${symbol}&apikey=${this.apiKey}`,
       cacheKey: buildCacheKey('FMP', 'price-target-consensus', { symbol }),
       ttlMs: TTL_MS.CONSENSUS,
       parse: (bytes) => {
         const json = decode(bytes, symbol);
+        throwIfErrorBody(json, symbol);
 
-        const message = readErrorMessage(json);
-        if (message !== null) {
-          throw new SourceError('FMP', 'AUTH', `${symbol}: ${message}`);
-        }
-
-        const parsed = FmpConsensusListSchema.safeParse(json);
+        const parsed = FmpPriceTargetConsensusListSchema.safeParse(json);
         if (!parsed.success) {
-          throw new SourceError('FMP', 'PARSE', `${symbol}: 컨센서스 응답 스키마 불일치`);
+          throw new SourceError('FMP', 'PARSE', `${symbol}: 목표주가 응답 스키마 불일치`);
         }
 
         const row = parsed.data[0];
-        if (row === undefined) return [];
+        if (row === undefined || row.targetConsensus === null) return null;
 
-        /*
-         * high / consensus / low 를 각각 한 건의 "의견"으로 펼친다.
-         * 집계 함수(aggregateByYear)가 개별 목표가 목록을 받게 되어 있어서,
-         * 여기서 같은 모양으로 맞춰 주면 아래쪽이 분기를 몰라도 된다.
-         */
-        const rows: Array<[number | null, string]> = [
-          [row.targetHigh, '컨센서스 최고'],
-          [row.targetConsensus, '컨센서스 평균'],
-          [row.targetLow, '컨센서스 최저'],
-        ];
-
-        const targets: AnalystTarget[] = [];
-        for (const [value, label] of rows) {
-          if (value === null || value <= 0) continue;
-          targets.push({
-            companyId: `US:${symbol}`,
-            publishedAt: today,
-            priceTarget: value,
-            priceWhenPosted: null,
-            analystCompany: label,
-            currency: 'USD',
-          });
-        }
-        return targets;
+        return {
+          high: row.targetHigh,
+          avg: row.targetConsensus,
+          low: row.targetLow,
+          currency: 'USD',
+        };
       },
     });
 
-    return result === null ? [] : result.value;
+    return result === null ? null : result.value;
   }
 }

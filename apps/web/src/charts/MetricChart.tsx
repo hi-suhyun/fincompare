@@ -26,10 +26,10 @@ interface Props {
   /** 표시 통화. 축 라벨과 눈금이 이 값을 따른다 */
   currency: DisplayCurrency;
   /**
-   * 목표주가 밴드. 주가 차트에만 얹는다.
+   * 애널리스트 추정 밴드. 추정치가 있는 지표(EPS·매출액)에만 얹는다.
    *
    * 빈 배열이면 아무것도 그리지 않는다 — 토글이 꺼져 있거나, 국내 기업이거나,
-   * 키가 없는 경우다.
+   * 키가 없거나, 이 지표에 추정치가 없는 경우다.
    */
   consensus?: readonly CompanyConsensus[];
 }
@@ -61,15 +61,26 @@ export function MetricChart({
   const { activePeriod, setActivePeriod } = useHoverSync();
 
   /*
-   * 밴드는 주가 차트에만, 그리고 화면 통화가 달러일 때만 그린다.
+   * 추정 밴드.
    *
-   * 목표주가는 달러값이다. 원화 보기로 바꾸면 주가만 환산되고 밴드는 그대로라
-   * 1,400배쯤 어긋난 그림이 된다 — 틀린 밴드를 그리느니 감추고 이유를 밝힌다.
+   * 통화 단위 지표(매출액 등)는 화면 통화가 원화면 그리지 않는다. 추정치는
+   * 달러값인데 실제값만 환산되면 1,400배쯤 어긋난 그림이 된다 —
+   * 틀린 밴드를 그리느니 감추고 이유를 밝힌다.
+   * EPS 는 정규화 모드에서 지수로 바뀌므로 그때도 뺀다.
    */
-  const bandable = metric.metricId === 'closePrice' && currency !== 'KRW';
-  const bands = bandable ? consensus.filter((c) => c.points.some((p) => p.high !== null)) : [];
+  const isMoneyMetric = metric.unit === '통화';
+  const currencyMismatch = isMoneyMetric && currency === 'KRW';
+  const normalized = metric.unit.startsWith('지수');
+
+  const bands = consensus
+    .map((c) => ({ companyId: c.companyId, points: c.estimates[metric.metricId] }))
+    .filter(
+      (b): b is { companyId: string; points: NonNullable<typeof b.points> } =>
+        b.points !== undefined && !currencyMismatch && !normalized,
+    );
+
   const bandHiddenByCurrency =
-    metric.metricId === 'closePrice' && currency === 'KRW' && consensus.length > 0;
+    currencyMismatch && consensus.some((c) => c.estimates[metric.metricId] !== undefined);
 
   const rows = periods.map((period, index) => {
     const row: Record<string, string | number | null | [number, number]> = { period };
@@ -109,7 +120,7 @@ export function MetricChart({
 
       {bandHiddenByCurrency && (
         <p className="mb-1 text-sm text-[#8a5a00]">
-          목표주가는 달러 기준이라 원화 보기에서는 밴드를 그리지 않습니다.
+          애널리스트 추정치는 달러 기준이라 원화 보기에서는 밴드를 그리지 않습니다.
           「표시 통화」를 원래 통화나 달러로 바꾸면 보입니다.
         </p>
       )}
@@ -188,7 +199,7 @@ export function MetricChart({
                 isAnimationActive={false}
                 activeDot={false}
                 legendType="none"
-                name={`${company.nameKo ?? company.id} 목표주가 범위`}
+                name={`${company.nameKo ?? company.id} 추정 범위`}
               />
             );
           })}
@@ -210,7 +221,7 @@ export function MetricChart({
                 activeDot={false}
                 isAnimationActive={false}
                 legendType="none"
-                name={`${company.nameKo ?? company.id} 목표주가 평균`}
+                name={`${company.nameKo ?? company.id} 추정 평균`}
               />
             );
           })}

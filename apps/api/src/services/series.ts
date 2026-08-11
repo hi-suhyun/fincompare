@@ -251,29 +251,29 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
       if (result === null) continue;
 
       /*
-       * 목표주가에도 같은 액면분할 계수를 먹인다.
+       * 추정치를 주가·EPS 와 같은 기준에 놓는다.
        *
-       * 목표가는 발행 시점 기준 값이다. 주가만 조정하고 목표가를 두면
-       * 분할이 있던 기업에서 밴드가 주가로부터 배수만큼 떠버린다 —
-       * 엔비디아 2021년이면 10배 위에 뜬 밴드를 보게 된다.
+       * FMP 추정치는 **현재 기준**(모든 분할 반영)으로 온다. 우리 실제값은
+       * adjustSplits 가 켜져 있을 때만 같은 기준이 된다. 껐을 때는 각 시점
+       * 공시값이라 분할 이전 구간이 배수만큼 크다 — 그때는 추정치를 되돌려
+       * 올려 줘야 밴드와 실제선이 겹친다.
        *
-       * 조정을 끈 상태에서는 주가도 공시 시점 기준이라 손대지 않는다.
+       * 엔비디아 2023년(FY2024)이면 추정 EPS 1.24 -> 12.4 가 되어야
+       * 실제 공시값 12.05 와 나란히 놓인다.
        */
-      if (request.adjustSplits) {
-        const company = companies.find((c) => c.id === result.companyId);
-        const byYear = company === undefined ? undefined : facts.get(company.id);
-        if (byYear !== undefined) {
-          // 조정 이후의 주식수라 원래 계수를 다시 못 구한다. 조정 전에 잡아 둔 것을 쓴다.
-          const factors = splitFactorsById.get(result.companyId);
-          if (factors !== undefined) {
-            result.points = result.points.map((point, index) => {
+      if (!request.adjustSplits) {
+        const factors = splitFactorsById.get(result.companyId);
+        if (factors !== undefined) {
+          for (const [metricId, points] of Object.entries(result.estimates)) {
+            if (!PER_SHARE_METRICS.has(metricId)) continue;
+            result.estimates[metricId] = points.map((point, index) => {
               const factor = factors[index] ?? 1;
               if (factor === 1) return point;
               return {
                 ...point,
-                high: point.high === null ? null : point.high / factor,
-                avg: point.avg === null ? null : point.avg / factor,
-                low: point.low === null ? null : point.low / factor,
+                high: point.high === null ? null : point.high * factor,
+                avg: point.avg === null ? null : point.avg * factor,
+                low: point.low === null ? null : point.low * factor,
               };
             });
           }

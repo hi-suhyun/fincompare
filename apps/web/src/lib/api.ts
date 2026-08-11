@@ -144,18 +144,23 @@ export interface ConsensusPoint {
   high: number | null;
   avg: number | null;
   low: number | null;
-  /** 그 해 집계에 들어간 목표주가 개수 */
+  /** 그 해 추정에 참여한 애널리스트 수 */
   count: number;
+}
+
+/** 현재 목표주가 컨센서스. 과거 이력은 유료 구간이라 시계열이 아니다 */
+export interface PriceTargetConsensus {
+  high: number | null;
+  avg: number | null;
+  low: number | null;
+  currency: string;
 }
 
 export interface CompanyConsensus {
   companyId: string;
-  points: ConsensusPoint[];
-  /**
-   * 과거 발행분까지 받았는지.
-   * false 면 지금 시점의 컨센서스뿐이라 "그때 맞았나"는 답할 수 없다.
-   */
-  historical: boolean;
+  /** 지표별 추정 밴드 (eps · revenue). 실제값과 같은 연도 축에 맞춰져 있다 */
+  estimates: Record<string, ConsensusPoint[]>;
+  priceTarget: PriceTargetConsensus | null;
   source: string;
 }
 
@@ -177,7 +182,7 @@ export interface SeriesParams {
   normalize: boolean;
   currency: 'KRW' | 'USD' | 'native';
   adjustSplits: boolean;
-  /** 목표주가 밴드를 함께 받는다. 미국 기업만 대상 */
+  /** 애널리스트 컨센서스를 함께 받는다. 미국 기업만 대상 */
   consensus: boolean;
 }
 

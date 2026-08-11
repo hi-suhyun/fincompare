@@ -149,31 +149,35 @@ export const prices = sqliteTable(
 );
 
 /**
- * 애널리스트 목표주가 (개별 건).
+ * 애널리스트 추정치 (회계기간별).
  *
- * 집계값(연도별 high/avg/low)이 아니라 원본을 그대로 담는다. 집계 규칙이
- * 바뀌어도 다시 받지 않아도 되고, "그때 그 의견"을 발행일과 함께 볼 수 있다.
+ * 목표주가가 아니라 **추정치**를 담는 이유: 개별 목표주가 이력은 FMP 유료
+ * 구간이고, 추정치는 회계연도 단위라 우리 실제값과 같은 축에 그대로 놓인다.
+ * "그때의 추정이 맞았나"는 이쪽이 더 정확히 답한다.
+ *
+ * 집계(연도별 밴드)는 저장하지 않는다. 규칙이 바뀌어도 다시 받지 않아도 된다.
  *
  * ⚠️ 이 테이블은 배포판으로 옮기지 않는다. FMP 약관이 데이터를 제3자가
  *    접근 가능한 도구에 통합하는 것을 금지한다 (scripts/dump-for-deploy.sh 참고).
  */
-export const analystTargets = sqliteTable(
-  'analyst_targets',
+export const analystEstimates = sqliteTable(
+  'analyst_estimates',
   {
     companyId: text('company_id')
       .notNull()
       .references(() => companies.id, { onDelete: 'cascade' }),
-    /** 발행일 (YYYY-MM-DD) */
-    publishedAt: text('published_at').notNull(),
-    /** 같은 날 같은 기관이 두 건을 내는 경우가 있어 기관명까지 키에 넣는다 */
-    analystCompany: text('analyst_company').notNull().default(''),
-    priceTarget: text('price_target').notNull(),
-    /** 발행 당시 주가. 제공처가 주지 않으면 null */
-    priceWhenPosted: text('price_when_posted'),
-    currency: text('currency').notNull(),
+    /** 회계기간 종료일. 연도가 아니라 종료일이어야 결산월 보정이 된다 */
+    periodEnd: text('period_end').notNull(),
+    /** eps | revenue */
+    metricId: text('metric_id').notNull(),
+    low: text('low'),
+    avg: text('avg'),
+    high: text('high'),
+    /** 추정에 참여한 애널리스트 수 */
+    analystCount: integer('analyst_count').notNull().default(0),
     source: text('source').notNull(),
   },
-  (t) => [primaryKey({ columns: [t.companyId, t.publishedAt, t.analystCompany] })],
+  (t) => [primaryKey({ columns: [t.companyId, t.periodEnd, t.metricId] })],
 );
 
 /** ECB 기준환율. 주말·공휴일은 행이 없으므로 조회 시 직전 영업일로 forward-fill 한다 */

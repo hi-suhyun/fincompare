@@ -79,10 +79,13 @@ export function ChartStack({
   // 밴드가 실제로 그려지는 조건. 안내 문구를 그때만 띄운다.
   const consensusShown =
     !overlay &&
-    currency !== 'KRW' &&
-    data.series.some((m) => m.metricId === 'closePrice') &&
-    data.consensus.some((c) => c.points.some((p) => p.high !== null));
-  const consensusHistorical = data.consensus.every((c) => c.historical);
+    data.series.some((metric) =>
+      data.consensus.some((c) => c.estimates[metric.metricId] !== undefined),
+    ) &&
+    !(currency === 'KRW');
+
+  // 현재 목표주가는 시계열이 아니라 "지금 값" 이다. 있을 때만 따로 알린다.
+  const priceTargets = data.consensus.filter((c) => c.priceTarget !== null);
 
   const lineCount = data.series.length * data.companies.length;
   // 겹쳐 보기는 한 차트라 세로 공간을 몰아 쓸 수 있다
@@ -135,15 +138,24 @@ export function ChartStack({
 
           {consensusShown && (
             <p className="rounded-xl border border-[var(--line)] bg-white px-4 py-2.5 text-sm text-[var(--ink-muted)]">
-              옅은 띠는 그 해 발행된 <strong className="font-medium">애널리스트 목표주가</strong>의
-              최고~최저 범위이고, 점선은 평균입니다.{' '}
-              <strong className="font-medium">목표주가는 예측이 아니라 애널리스트의 의견</strong>
-              입니다 — 발행 시점의 정보와 판단이 섞여 있고, 실제 주가와 다를 수 있습니다.
-              {!consensusHistorical && (
+              옅은 띠는 <strong className="font-medium">애널리스트 추정치</strong>의 최고~최저
+              범위이고, 점선은 평균입니다. 실선(실제 공시값)이 띠 안에 있으면 그 해 추정이
+              맞았다는 뜻입니다.{' '}
+              <strong className="font-medium">추정치는 예측이 아니라 애널리스트의 의견</strong>
+              입니다 — 당시의 정보와 판단이 섞여 있고, 실제와 다를 수 있습니다.
+              {priceTargets.length > 0 && (
                 <>
                   {' '}
-                  지금 요금제에서는 과거 발행분을 받을 수 없어 현재 컨센서스만 표시됩니다 —
-                  과거 시점과의 비교는 할 수 없습니다.
+                  현재 목표주가 컨센서스:{' '}
+                  {priceTargets
+                    .map((c) => {
+                      const company = data.companies.find((x) => x.id === c.companyId);
+                      const t = c.priceTarget;
+                      const name = company?.nameKo ?? c.companyId;
+                      return `${name} ${t?.low ?? '?'}~${t?.high ?? '?'} (평균 ${t?.avg ?? '?'})`;
+                    })
+                    .join(' · ')}
+                  . 목표주가는 과거 이력을 받을 수 없어 지금 값만 보여줍니다.
                 </>
               )}
             </p>

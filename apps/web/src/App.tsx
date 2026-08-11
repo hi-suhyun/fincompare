@@ -1,4 +1,9 @@
-import { MAX_COMPANIES, PER_SHARE_METRICS, type Country } from '@fincompare/shared';
+import {
+  MAX_COMPANIES,
+  PER_SHARE_METRICS,
+  isEstimatedMetric,
+  type Country,
+} from '@fincompare/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChartStack } from './charts/ChartStack.js';
@@ -80,8 +85,8 @@ export function App(): React.ReactElement {
   const isMixedMarket = countries.size > 1;
   const hasUsCompanies = countries.has('US');
   const hasKrCompanies = countries.has('KR');
-  // 목표주가 밴드는 주가 차트 위에만 얹힌다
-  const hasPriceMetric = state.metrics.includes('closePrice');
+  // 추정치가 있는 지표에만 밴드가 얹힌다
+  const hasEstimatedMetric = state.metrics.some((m) => isEstimatedMetric(m));
   // 액면분할 조정은 주당 지표에만 영향을 준다. 매출액만 보고 있으면 띄울 이유가 없다.
   const hasPerShareMetric = state.metrics.some((m) => PER_SHARE_METRICS.has(m));
 
@@ -179,7 +184,7 @@ export function App(): React.ReactElement {
                   hasUsCompanies={hasUsCompanies}
                   hasKrCompanies={hasKrCompanies}
                   enabled={consensusEnabled}
-                  hasPriceMetric={hasPriceMetric}
+                  hasEstimatedMetric={hasEstimatedMetric}
                 />
                 <label className="flex items-center gap-2.5">
                   <input

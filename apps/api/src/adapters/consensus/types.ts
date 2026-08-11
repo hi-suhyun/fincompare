@@ -1,7 +1,7 @@
-import type { AnalystTarget } from '@fincompare/shared';
+import type { EstimatedMetricId, PriceTargetConsensus } from '@fincompare/shared';
 
 /**
- * 목표주가 제공처.
+ * 컨센서스 제공처.
  *
  * 주가 어댑터(PriceAdapter)와 같은 모양으로 둔다. 제공처를 갈아끼울 때
  * 서비스 계층을 건드리지 않기 위해서다.
@@ -10,25 +10,37 @@ export interface ConsensusAdapter {
   /** 캐시·경고에 찍히는 이름 */
   readonly source: string;
 
+  fetchConsensus(ticker: string): Promise<ConsensusResult>;
+}
+
+/** 회계기간 하나에 대한 추정치 */
+export interface EstimateRow {
   /**
-   * 개별 목표주가를 발행일과 함께 받아온다.
+   * 회계기간 종료일 (YYYY-MM-DD).
    *
-   * 과거 이력을 주지 못하는 제공처·요금제도 있다. 그때는 현재 컨센서스만
-   * 담은 한 건을 오늘 날짜로 돌려주고 `historical: false` 로 알린다 —
-   * 화면에서 "과거 비교는 불가"라고 정직하게 말할 수 있어야 한다.
+   * 연도가 아니라 종료일을 그대로 들고 온다. 결산월이 다른 기업을 실제값과
+   * 같은 해에 놓으려면 우리 정렬 규칙(alignPeriod)을 태워야 하는데,
+   * 그러려면 종료일이 필요하다.
    */
-  fetchTargets(ticker: string): Promise<ConsensusResult>;
+  periodEnd: string;
+  metricId: EstimatedMetricId;
+  low: number | null;
+  avg: number | null;
+  high: number | null;
+  /** 추정에 참여한 애널리스트 수 */
+  count: number;
 }
 
 export interface ConsensusResult {
-  targets: AnalystTarget[];
+  /** 연도별 추정치. 이게 "그때의 추정이 맞았나"를 답한다 */
+  estimates: EstimateRow[];
   /**
-   * 과거 발행분까지 받았는지.
+   * 현재 목표주가 컨센서스.
    *
-   * false 면 targets 는 "지금 시점의 컨센서스" 한 건뿐이다. 그 경우
-   * "그때의 추정이 맞았나"는 답할 수 없다.
+   * 과거 발행분은 유료 구간이라 받을 수 없다. 그래서 시계열이 아니라
+   * "지금 값" 하나다 — 화면에서도 추이가 아니라 현재 수준으로만 쓴다.
    */
-  historical: boolean;
-  /** 과거 이력을 못 받았다면 그 이유 */
-  reason?: string;
+  priceTarget: PriceTargetConsensus | null;
+  /** 목표주가 과거 이력을 받을 수 없는 이유. 화면에 그대로 보여준다 */
+  priceTargetNote?: string;
 }

@@ -5,16 +5,23 @@ import { RateLimiter } from '../../core/rateLimiter.js';
 import { FmpConsensusAdapter } from './fmp.js';
 
 /**
- * URL 로 응답을 갈라 준다. price-target 과 price-target-consensus 가
- * 서로 다르게 동작하는 경우(요금제 차단 등)를 재현해야 한다.
+ * URL 로 응답을 갈라 준다. 추정치와 목표주가가 서로 다르게 동작하는 경우
+ * (요금제 차단 등)를 재현해야 한다.
  */
-function makeAdapter(routes: { historical?: unknown; current?: unknown; status?: number }) {
+function makeAdapter(routes: {
+  estimates?: unknown;
+  priceTarget?: unknown;
+  priceTargetStatus?: number;
+}) {
   const urls: string[] = [];
   const fetchImpl = vi.fn(async (url: string) => {
     urls.push(url);
-    const isConsensus = url.includes('price-target-consensus');
-    const body = isConsensus ? routes.current : routes.historical;
-    return new Response(JSON.stringify(body ?? []), { status: routes.status ?? 200 });
+    if (url.includes('price-target-consensus')) {
+      return new Response(JSON.stringify(routes.priceTarget ?? []), {
+        status: routes.priceTargetStatus ?? 200,
+      });
+    }
+    return new Response(JSON.stringify(routes.estimates ?? []), { status: 200 });
   });
 
   const adapter = new FmpConsensusAdapter({
@@ -28,63 +35,69 @@ function makeAdapter(routes: { historical?: unknown; current?: unknown; status?:
     fetchImpl: fetchImpl as unknown as typeof globalThis.fetch,
   });
 
-  return { adapter, urls, fetchImpl };
+  return { adapter, urls };
 }
 
-describe('FmpConsensusAdapter — 과거 목표주가', () => {
-  it('발행일과 함께 개별 목표가를 읽는다', async () => {
-    const { adapter } = makeAdapter({
-      historical: [
-        {
-          symbol: 'NVDA',
-          publishedDate: '2023-05-25T12:30:00.000Z',
-          priceTarget: 450,
-          priceWhenPosted: 305.38,
-          analystCompany: 'Morgan Stanley',
-        },
-      ],
-    });
+/** 실제 FMP stable 응답에서 가져온 형태 (NVDA FY2024) */
+const NVDA_FY2024 = {
+  symbol: 'NVDA',
+  date: '2024-01-25',
+  revenueLow: 59095875397,
+  revenueHigh: 60130706265,
+  revenueAvg: 59306860332,
+  epsLow: 1.21917,
+  epsAvg: 1.23926,
+  epsHigh: 1.26537,
+  numAnalystsRevenue: 28,
+  numAnalystsEps: 28,
+};
 
-    const result = await adapter.fetchTargets('NVDA');
+describe('FmpConsensusAdapter — 추정치', () => {
+  it('한 회계기간을 지표별로 펼친다', async () => {
+    const { adapter } = makeAdapter({ estimates: [NVDA_FY2024] });
 
-    expect(result.historical).toBe(true);
-    expect(result.targets).toHaveLength(1);
-    expect(result.targets[0]).toMatchObject({
-      companyId: 'US:NVDA',
-      // 타임스탬프에서 날짜만 잘라낸다
-      publishedAt: '2023-05-25',
-      priceTarget: 450,
-      priceWhenPosted: 305.38,
-      analystCompany: 'Morgan Stanley',
+    const result = await adapter.fetchConsensus('NVDA');
+
+    expect(result.estimates).toHaveLength(2);
+    expect(result.estimates.find((e) => e.metricId === 'eps')).toEqual({
+      periodEnd: '2024-01-25',
+      metricId: 'eps',
+      low: 1.21917,
+      avg: 1.23926,
+      high: 1.26537,
+      count: 28,
     });
+    expect(result.estimates.find((e) => e.metricId === 'revenue')?.avg).toBe(59306860332);
+  });
+
+  it('회계기간 종료일을 연도로 뭉개지 않는다', async () => {
+    // 1월 결산 기업은 종료일이 있어야 실제값과 같은 해에 정렬된다
+    const { adapter } = makeAdapter({ estimates: [NVDA_FY2024] });
+
+    const result = await adapter.fetchConsensus('NVDA');
+
+    expect(result.estimates[0]?.periodEnd).toBe('2024-01-25');
   });
 
   it('숫자가 문자열로 와도 읽는다', async () => {
     // FMP 는 같은 필드를 기업마다 다른 타입으로 준다
     const { adapter } = makeAdapter({
-      historical: [
-        { symbol: 'NVDA', publishedDate: '2023-05-25', priceTarget: '450', priceWhenPosted: '305' },
-      ],
+      estimates: [{ ...NVDA_FY2024, epsAvg: '1.23926', numAnalystsEps: '28' }],
     });
 
-    const result = await adapter.fetchTargets('NVDA');
-    expect(result.targets[0]?.priceTarget).toBe(450);
+    const result = await adapter.fetchConsensus('NVDA');
+    const eps = result.estimates.find((e) => e.metricId === 'eps');
+    expect(eps?.avg).toBe(1.23926);
+    expect(eps?.count).toBe(28);
   });
 
-  it('쓸 수 없는 행만 건너뛰고 나머지는 살린다', async () => {
+  it('값이 없는 지표는 행을 만들지 않는다', async () => {
     const { adapter } = makeAdapter({
-      historical: [
-        { symbol: 'NVDA', publishedDate: '2023-05-25', priceTarget: null },
-        { symbol: 'NVDA', publishedDate: 'not-a-date', priceTarget: 400 },
-        { symbol: 'NVDA', publishedDate: '2023-06-01', priceTarget: 0 },
-        { symbol: 'NVDA', publishedDate: '2023-07-01', priceTarget: 500 },
-      ],
+      estimates: [{ ...NVDA_FY2024, epsAvg: null, revenueAvg: null }],
     });
 
-    const result = await adapter.fetchTargets('NVDA');
-
-    expect(result.targets).toHaveLength(1);
-    expect(result.targets[0]?.priceTarget).toBe(500);
+    const result = await adapter.fetchConsensus('NVDA');
+    expect(result.estimates).toEqual([]);
   });
 
   it('API 키를 캐시 키에 남기지 않는다', async () => {
@@ -98,55 +111,57 @@ describe('FmpConsensusAdapter — 과거 목표주가', () => {
       }),
       cache: new CacheLayer(store),
       fetchImpl: (async () =>
-        new Response(
-          JSON.stringify([{ symbol: 'NVDA', publishedDate: '2023-05-25', priceTarget: 450 }]),
-        )) as unknown as typeof globalThis.fetch,
+        new Response(JSON.stringify([NVDA_FY2024]))) as unknown as typeof globalThis.fetch,
     });
 
-    await adapter.fetchTargets('NVDA');
+    await adapter.fetchConsensus('NVDA');
 
     // 심볼만으로 만든 키로 꺼내진다면, 키에 토큰이 섞이지 않았다는 뜻이다
-    const cacheKey = buildCacheKey('FMP', 'price-target', { symbol: 'NVDA' });
+    const cacheKey = buildCacheKey('FMP', 'analyst-estimates', { symbol: 'NVDA' });
     expect(cacheKey).not.toContain('super-secret');
     await expect(store.get(cacheKey)).resolves.not.toBeNull();
   });
 });
 
-describe('FmpConsensusAdapter — 요금제가 과거 이력을 막았을 때', () => {
-  const blocked = { 'Error Message': 'This endpoint is available under Premium plan.' };
-
-  it('현재 컨센서스로 내려가고 그 사실을 알린다', async () => {
-    // 조용히 빈 값을 주면 "목표주가가 없는 기업"으로 오해된다
+describe('FmpConsensusAdapter — 목표주가', () => {
+  it('현재 컨센서스를 읽는다', async () => {
     const { adapter } = makeAdapter({
-      historical: blocked,
-      current: [{ symbol: 'NVDA', targetHigh: 500, targetLow: 300, targetConsensus: 420, targetMedian: 410 }],
+      estimates: [NVDA_FY2024],
+      priceTarget: [
+        { symbol: 'NVDA', targetHigh: 500, targetLow: 218, targetConsensus: 319.48, targetMedian: 300 },
+      ],
     });
 
-    const result = await adapter.fetchTargets('NVDA');
+    const result = await adapter.fetchConsensus('NVDA');
 
-    expect(result.historical).toBe(false);
-    expect(result.reason).toContain('과거');
-    expect(result.targets.map((t) => t.priceTarget)).toEqual([500, 420, 300]);
+    expect(result.priceTarget).toEqual({ high: 500, avg: 319.48, low: 218, currency: 'USD' });
   });
 
-  it('개별 목표가가 0건이어도 컨센서스를 시도한다', async () => {
-    const { adapter, urls } = makeAdapter({
-      historical: [],
-      current: [{ symbol: 'NVDA', targetHigh: 500, targetLow: 300, targetConsensus: 420, targetMedian: 410 }],
+  it('목표주가가 막혀도 추정치는 살린다', async () => {
+    // 추정치가 핵심 기능이다. 목표주가는 부가라 없어도 성립해야 한다.
+    const { adapter } = makeAdapter({
+      estimates: [NVDA_FY2024],
+      priceTarget: { 'Error Message': 'Restricted Endpoint: not available under your plan' },
     });
 
-    const result = await adapter.fetchTargets('NVDA');
+    const result = await adapter.fetchConsensus('NVDA');
 
-    expect(urls.some((u) => u.includes('price-target-consensus'))).toBe(true);
-    expect(result.targets).toHaveLength(3);
+    expect(result.estimates).toHaveLength(2);
+    expect(result.priceTarget).toBeNull();
+    expect(result.priceTargetNote).toContain('목표주가를 받지 못했습니다');
   });
+});
 
-  it('컨센서스도 비어 있으면 빈 목록을 준다', async () => {
-    const { adapter } = makeAdapter({ historical: [], current: [] });
+describe('FmpConsensusAdapter — 요금제 차단', () => {
+  it('안내 문구를 데이터로 착각하지 않는다', async () => {
+    // 200 본문에 문구만 담겨 오면 "추정치 0건" 으로 조용히 넘어간다
+    const { adapter } = makeAdapter({
+      estimates: {
+        'Error Message':
+          'Legacy Endpoint : Due to Legacy endpoints being no longer supported',
+      },
+    });
 
-    const result = await adapter.fetchTargets('NVDA');
-
-    expect(result.targets).toEqual([]);
-    expect(result.historical).toBe(false);
+    await expect(adapter.fetchConsensus('NVDA')).rejects.toThrow(/Legacy/);
   });
 });
