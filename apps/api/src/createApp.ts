@@ -13,6 +13,8 @@ import { FxClient } from './adapters/fx/ecb.js';
 import { KrxPriceAdapter } from './adapters/price/krx.js';
 import { NaverPriceAdapter } from './adapters/price/naver.js';
 import { TiingoPriceAdapter } from './adapters/price/tiingo.js';
+import { FmpConsensusAdapter } from './adapters/consensus/fmp.js';
+import type { ConsensusAdapter } from './adapters/consensus/types.js';
 import type { PriceAdapter } from './adapters/price/types.js';
 import { CacheLayer } from './core/cache.js';
 import { RequestQueue } from './core/queue.js';
@@ -123,8 +125,29 @@ export async function createApp(options: CreateAppOptions = {}): Promise<AppBund
     });
   };
 
+  /**
+   * 애널리스트 목표주가. 키가 있을 때만 붙는다.
+   *
+   * FMP 약관은 데이터를 제3자가 접근 가능한 도구에 통합하는 것을 금지한다.
+   * 그래서 가족 배포판은 키를 비워 두고, 본인 키로 로컬·셀프호스트할 때만 켜진다.
+   * Tiingo 와 같은 판단이다 (docs/00-data-sources.md).
+   */
+  const buildConsensusAdapter = (): ConsensusAdapter | null => {
+    if (config.FMP_API_KEY.trim() === '') return null;
+    return new FmpConsensusAdapter({
+      apiKey: config.FMP_API_KEY,
+      queue: new RequestQueue({
+        source: 'FMP',
+        limiter: new RateLimiter(DEFAULT_LIMITS.FMP),
+        concurrency: 1,
+      }),
+      cache,
+    });
+  };
+
   const krPrice = buildKrPriceAdapter();
   const usPrice = buildUsPriceAdapter();
+  const consensusAdapter = buildConsensusAdapter();
 
   const app = express();
   app.use(express.json());
@@ -173,6 +196,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<AppBund
           capabilities: {
             krPrices: krPrice !== null,
             usPrices: usPrice !== null,
+            /** 미국 기업 목표주가. 국내는 링크아웃만이라 여기에 들어오지 않는다 */
+            consensus: consensusAdapter !== null,
           },
         });
       })
@@ -180,7 +205,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<AppBund
   });
 
   app.use('/api/companies', createCompaniesRouter(handle.db));
-  app.use('/api/series', createSeriesRouter({ db: handle.db, dart, sec, fx, krPrice, usPrice }));
+  app.use(
+    '/api/series',
+    createSeriesRouter({ db: handle.db, dart, sec, fx, krPrice, usPrice, consensusAdapter }),
+  );
 
   const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
     if (error instanceof SourceError) {

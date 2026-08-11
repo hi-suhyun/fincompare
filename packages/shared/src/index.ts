@@ -1,5 +1,6 @@
 export * from './schema/company.js';
 export * from './schema/financial.js';
+export * from './schema/consensus.js';
 export * from './period/align.js';
 export * from './period/coverage.js';
 export * from './search/hangul.js';

@@ -9,7 +9,7 @@ export type Market = z.infer<typeof MarketSchema>;
 export const CurrencySchema = z.enum(['KRW', 'USD']);
 export type Currency = z.infer<typeof CurrencySchema>;
 
-export const SourceIdSchema = z.enum(['DART', 'SEC', 'KRX', 'NAVER', 'TIINGO', 'ECB']);
+export const SourceIdSchema = z.enum(['DART', 'SEC', 'KRX', 'NAVER', 'TIINGO', 'ECB', 'FMP']);
 export type SourceId = z.infer<typeof SourceIdSchema>;
 
 /**

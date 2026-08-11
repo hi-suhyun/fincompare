@@ -37,6 +37,11 @@ export interface AppState {
    * 기본이 켜짐이다 — 끄면 분할 지점에서 선이 끊겨 추이를 읽을 수 없다.
    */
   adjustSplits: boolean;
+  /**
+   * 애널리스트 목표주가 밴드. 기본은 꺼짐이다.
+   * 무료 티어가 하루 250 콜이라, 보겠다고 한 적 없는 조회에서 태우지 않는다.
+   */
+  consensus: boolean;
 }
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -53,6 +58,7 @@ export const DEFAULT_STATE: AppState = {
   currency: 'native',
   overlay: false,
   adjustSplits: true,
+  consensus: false,
 };
 
 function clampYear(value: number, fallback: number): number {
@@ -93,6 +99,7 @@ function parseState(search: string): AppState {
     overlay: normalize && params.get('ov') === '1',
     // 기본이 켜짐이라 꺼진 경우만 URL 에 남는다
     adjustSplits: params.get('adj') !== '0',
+    consensus: params.get('cons') === '1',
   };
 }
 
@@ -110,6 +117,7 @@ function toSearch(state: AppState): string {
   if (state.overlay) params.set('ov', '1');
   if (state.currency !== 'native') params.set('cur', state.currency);
   if (!state.adjustSplits) params.set('adj', '0');
+  if (state.consensus) params.set('cons', '1');
   return params.toString();
 }
 

@@ -26,6 +26,8 @@ import { FxTable, type FxClient } from '../adapters/fx/ecb.js';
 import { convertValue, fiscalPeriodBounds } from './currency.js';
 import { ensureAnnualFinancials, loadCompanies, loadFacts } from './financials.js';
 import { ensureClosePrices, isSplitAdjustedSource, type PriceDeps } from './prices.js';
+import { ensureConsensus, type CompanyConsensus, type ConsensusWarning } from './consensus.js';
+import type { ConsensusAdapter } from '../adapters/consensus/types.js';
 
 /**
  * 차트 하나를 그리는 데 필요한 모든 것을 한 번에 준다.
@@ -57,6 +59,13 @@ export interface SeriesRequest {
    * 나뉘므로 비율이 보존된다.
    */
   adjustSplits: boolean;
+  /**
+   * 애널리스트 목표주가 밴드를 함께 준다.
+   *
+   * 미국 기업만 대상이고 FMP 키가 있어야 한다. 국내는 컨센서스를 저장하지
+   * 않기로 했으므로(저작권) 링크아웃만 제공한다.
+   */
+  consensus: boolean;
 }
 
 export interface SeriesCompany {
@@ -92,6 +101,8 @@ export interface SeriesResponse {
   series: SeriesMetric[];
   provenance: Record<string, { source: string; consolidation: string; basis: string }>;
   warnings: SeriesWarning[];
+  /** 목표주가 밴드. 요청하지 않았거나 받을 수 없으면 빈 배열 */
+  consensus: CompanyConsensus[];
 }
 
 export interface SeriesDeps extends PriceDeps {
@@ -99,6 +110,8 @@ export interface SeriesDeps extends PriceDeps {
   dart: DartClient;
   sec: SecClient;
   fx: FxClient;
+  /** 목표주가 제공처. 키가 없으면 null */
+  consensusAdapter?: ConsensusAdapter | null;
 }
 
 export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Promise<SeriesResponse> {
@@ -182,6 +195,19 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
     if (events.length > 0) splitEvents.set(company.id, events);
   }
 
+  /*
+   * 분할 계수도 조정 전에 잡아 둔다. 목표주가에 같은 계수를 먹여야
+   * 밴드와 주가가 같은 기준 위에 놓인다.
+   */
+  const splitFactorsById = new Map<string, number[]>();
+  for (const company of companies) {
+    const byYear = facts.get(company.id);
+    if (byYear === undefined) continue;
+    const shares = periods.map((p) => byYear.get(Number(p))?.get('sharesOutstanding') ?? null);
+    const factors = splitAdjustmentFactors(periods, shares);
+    if (factors.some((f) => f !== 1)) splitFactorsById.set(company.id, factors);
+  }
+
   if (request.adjustSplits) applyDisplaySplitAdjustment(companies, facts, periods);
 
   // 정규화 모드에서는 환산하지 않는다. 성장률에 환율 변동이 섞이면
@@ -196,6 +222,76 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
     targetCurrency,
     warnings,
   );
+
+  /*
+   * 목표주가.
+   *
+   * 재무지표 수집이 끝난 뒤에 부른다. 주가 밴드를 그리려면 같은 축(연도)이
+   * 필요하고, 실패해도 재무지표는 이미 손에 있어야 하기 때문이다.
+   *
+   * 국내 기업·키 없음·제공처 오류는 모두 조용히 null 로 떨어지고,
+   * 알릴 것이 있을 때만 경고가 쌓인다.
+   */
+  const consensus: CompanyConsensus[] = [];
+  if (request.consensus) {
+    const consensusWarnings: ConsensusWarning[] = [];
+    const years = periods.map(Number);
+    const results = await Promise.all(
+      companies.map((company) =>
+        ensureConsensus(
+          { db: deps.db, consensus: deps.consensusAdapter ?? null },
+          company,
+          years,
+          consensusWarnings,
+        ),
+      ),
+    );
+
+    for (const result of results) {
+      if (result === null) continue;
+
+      /*
+       * 목표주가에도 같은 액면분할 계수를 먹인다.
+       *
+       * 목표가는 발행 시점 기준 값이다. 주가만 조정하고 목표가를 두면
+       * 분할이 있던 기업에서 밴드가 주가로부터 배수만큼 떠버린다 —
+       * 엔비디아 2021년이면 10배 위에 뜬 밴드를 보게 된다.
+       *
+       * 조정을 끈 상태에서는 주가도 공시 시점 기준이라 손대지 않는다.
+       */
+      if (request.adjustSplits) {
+        const company = companies.find((c) => c.id === result.companyId);
+        const byYear = company === undefined ? undefined : facts.get(company.id);
+        if (byYear !== undefined) {
+          // 조정 이후의 주식수라 원래 계수를 다시 못 구한다. 조정 전에 잡아 둔 것을 쓴다.
+          const factors = splitFactorsById.get(result.companyId);
+          if (factors !== undefined) {
+            result.points = result.points.map((point, index) => {
+              const factor = factors[index] ?? 1;
+              if (factor === 1) return point;
+              return {
+                ...point,
+                high: point.high === null ? null : point.high / factor,
+                avg: point.avg === null ? null : point.avg / factor,
+                low: point.low === null ? null : point.low / factor,
+              };
+            });
+          }
+        }
+      }
+
+      consensus.push(result);
+    }
+
+    for (const w of consensusWarnings) {
+      warnings.push({
+        companyId: w.companyId,
+        metricId: 'closePrice',
+        code: 'PRICE_UNAVAILABLE',
+        detail: w.detail,
+      });
+    }
+  }
 
   const seriesCompanies: SeriesCompany[] = companies.map((company, index) => {
     const style = styleForIndex(index);
@@ -343,6 +439,7 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
     series,
     provenance,
     warnings: dedupeWarnings(warnings),
+    consensus,
   };
 }
 

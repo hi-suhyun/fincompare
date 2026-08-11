@@ -10,6 +10,7 @@ import { OverlayLegend } from './OverlayLegend.js';
 import { ReadoutPanel } from './ReadoutPanel.js';
 import { SharedLegend } from './SharedLegend.js';
 import { WarningList } from './WarningList.js';
+import { KoreanConsensusLink } from '../features/KoreanConsensusLink.js';
 
 interface Props {
   data: SeriesResponse;
@@ -75,6 +76,14 @@ export function ChartStack({
   // 20배쯤부터 작은 쪽 선이 축 바닥에 붙어 기울기를 읽을 수 없다
   const spreadTooWide = spread >= 20;
 
+  // 밴드가 실제로 그려지는 조건. 안내 문구를 그때만 띄운다.
+  const consensusShown =
+    !overlay &&
+    currency !== 'KRW' &&
+    data.series.some((m) => m.metricId === 'closePrice') &&
+    data.consensus.some((c) => c.points.some((p) => p.high !== null));
+  const consensusHistorical = data.consensus.every((c) => c.historical);
+
   const lineCount = data.series.length * data.companies.length;
   // 겹쳐 보기는 한 차트라 세로 공간을 몰아 쓸 수 있다
   const height = overlay ? 420 : chartHeight(data.series.length);
@@ -124,6 +133,22 @@ export function ChartStack({
             </p>
           )}
 
+          {consensusShown && (
+            <p className="rounded-xl border border-[var(--line)] bg-white px-4 py-2.5 text-sm text-[var(--ink-muted)]">
+              옅은 띠는 그 해 발행된 <strong className="font-medium">애널리스트 목표주가</strong>의
+              최고~최저 범위이고, 점선은 평균입니다.{' '}
+              <strong className="font-medium">목표주가는 예측이 아니라 애널리스트의 의견</strong>
+              입니다 — 발행 시점의 정보와 판단이 섞여 있고, 실제 주가와 다를 수 있습니다.
+              {!consensusHistorical && (
+                <>
+                  {' '}
+                  지금 요금제에서는 과거 발행분을 받을 수 없어 현재 컨센서스만 표시됩니다 —
+                  과거 시점과의 비교는 할 수 없습니다.
+                </>
+              )}
+            </p>
+          )}
+
           {overlay ? (
             <OverlayChart data={data} height={height} logScale={logScale} />
           ) : (
@@ -138,11 +163,14 @@ export function ChartStack({
                   showXAxisLabels={index === data.series.length - 1}
                   logScale={logScale}
                   currency={currency}
+                  consensus={data.consensus}
                 />
               ))}
             </div>
           )}
         </div>
+
+        <KoreanConsensusLink companies={data.companies} />
 
         <WarningList warnings={data.warnings} companies={data.companies} />
       </div>

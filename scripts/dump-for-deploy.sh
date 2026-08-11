@@ -25,7 +25,12 @@ fi
 WITH_DATA=(companies company_aliases __drizzle_migrations)
 
 # 스키마만 만드는 테이블 (캐시·로그)
-SCHEMA_ONLY=(raw_cache fetch_log fx_rates shares_outstanding)
+#
+# analyst_targets 가 여기 있는 이유는 캐시라서가 아니다. FMP 약관이 데이터를
+# "제3자가 접근 가능한 도구나 애플리케이션에 통합"하는 것을 금지한다.
+# 배포판은 여러 명이 같은 링크로 들어오므로 이 데이터가 실리면 그 자체로 위반이다.
+# 스키마만 만들어 두고 데이터는 두고 간다.
+SCHEMA_ONLY=(raw_cache fetch_log fx_rates shares_outstanding analyst_targets)
 
 #
 # 재배포가 금지된 소스.

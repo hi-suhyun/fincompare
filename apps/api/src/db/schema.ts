@@ -148,6 +148,34 @@ export const prices = sqliteTable(
   (t) => [primaryKey({ columns: [t.companyId, t.date] })],
 );
 
+/**
+ * 애널리스트 목표주가 (개별 건).
+ *
+ * 집계값(연도별 high/avg/low)이 아니라 원본을 그대로 담는다. 집계 규칙이
+ * 바뀌어도 다시 받지 않아도 되고, "그때 그 의견"을 발행일과 함께 볼 수 있다.
+ *
+ * ⚠️ 이 테이블은 배포판으로 옮기지 않는다. FMP 약관이 데이터를 제3자가
+ *    접근 가능한 도구에 통합하는 것을 금지한다 (scripts/dump-for-deploy.sh 참고).
+ */
+export const analystTargets = sqliteTable(
+  'analyst_targets',
+  {
+    companyId: text('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'cascade' }),
+    /** 발행일 (YYYY-MM-DD) */
+    publishedAt: text('published_at').notNull(),
+    /** 같은 날 같은 기관이 두 건을 내는 경우가 있어 기관명까지 키에 넣는다 */
+    analystCompany: text('analyst_company').notNull().default(''),
+    priceTarget: text('price_target').notNull(),
+    /** 발행 당시 주가. 제공처가 주지 않으면 null */
+    priceWhenPosted: text('price_when_posted'),
+    currency: text('currency').notNull(),
+    source: text('source').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.companyId, t.publishedAt, t.analystCompany] })],
+);
+
 /** ECB 기준환율. 주말·공휴일은 행이 없으므로 조회 시 직전 영업일로 forward-fill 한다 */
 export const fxRates = sqliteTable(
   'fx_rates',

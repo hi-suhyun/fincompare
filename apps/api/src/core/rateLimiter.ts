@@ -183,6 +183,11 @@ export const DEFAULT_LIMITS = {
   TIINGO: { capacity: 2, refillPerSecond: 0.013, dailyQuota: 900 },
   /** 비공식 엔드포인트. 눈에 띄지 않게 느리게 */
   NAVER: { capacity: 1, refillPerSecond: 1 },
+  /**
+   * FMP 무료 티어 250 req/일. 마진을 두고 220 으로 잡는다.
+   * 기업당 1회면 충분한 데이터라 초당 한도는 넉넉히 둬도 된다.
+   */
+  FMP: { capacity: 2, refillPerSecond: 2, dailyQuota: 220 },
   /** ECB. 부담 없지만 예의상 */
   ECB: { capacity: 5, refillPerSecond: 5 },
 } as const satisfies Record<string, RateLimiterOptions>;

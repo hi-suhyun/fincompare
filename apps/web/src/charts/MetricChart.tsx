@@ -1,15 +1,16 @@
 import { LINE_WIDTH } from '@fincompare/shared';
 import {
+  Area,
   CartesianGrid,
+  ComposedChart,
   Line,
-  LineChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
-import type { SeriesCompany, SeriesMetric } from '../lib/api.js';
+import type { CompanyConsensus, SeriesCompany, SeriesMetric } from '../lib/api.js';
 import { formatAxisTick, unitLabel } from '../lib/format.js';
 import type { DisplayCurrency } from '../lib/format.js';
 import { useHoverSync } from './hoverSync.js';
@@ -24,6 +25,13 @@ interface Props {
   logScale: boolean;
   /** 표시 통화. 축 라벨과 눈금이 이 값을 따른다 */
   currency: DisplayCurrency;
+  /**
+   * 목표주가 밴드. 주가 차트에만 얹는다.
+   *
+   * 빈 배열이면 아무것도 그리지 않는다 — 토글이 꺼져 있거나, 국내 기업이거나,
+   * 키가 없는 경우다.
+   */
+  consensus?: readonly CompanyConsensus[];
 }
 
 /**
@@ -48,13 +56,33 @@ export function MetricChart({
   showXAxisLabels,
   logScale,
   currency,
+  consensus = [],
 }: Props): React.ReactElement {
   const { activePeriod, setActivePeriod } = useHoverSync();
 
+  /*
+   * 밴드는 주가 차트에만, 그리고 화면 통화가 달러일 때만 그린다.
+   *
+   * 목표주가는 달러값이다. 원화 보기로 바꾸면 주가만 환산되고 밴드는 그대로라
+   * 1,400배쯤 어긋난 그림이 된다 — 틀린 밴드를 그리느니 감추고 이유를 밝힌다.
+   */
+  const bandable = metric.metricId === 'closePrice' && currency !== 'KRW';
+  const bands = bandable ? consensus.filter((c) => c.points.some((p) => p.high !== null)) : [];
+  const bandHiddenByCurrency =
+    metric.metricId === 'closePrice' && currency === 'KRW' && consensus.length > 0;
+
   const rows = periods.map((period, index) => {
-    const row: Record<string, string | number | null> = { period };
+    const row: Record<string, string | number | null | [number, number]> = { period };
     for (const company of companies) {
       row[company.id] = metric.data[company.id]?.[index] ?? null;
+    }
+
+    // 밴드는 [low, high] 쌍으로 넣는다. Recharts Area 가 이 형태를 범위로 그린다.
+    for (const band of bands) {
+      const point = band.points[index];
+      if (point === undefined || point.low === null || point.high === null) continue;
+      row[`${band.companyId}__band`] = [point.low, point.high];
+      row[`${band.companyId}__avg`] = point.avg;
     }
     return row;
   });
@@ -79,6 +107,13 @@ export function MetricChart({
         </span>
       </div>
 
+      {bandHiddenByCurrency && (
+        <p className="mb-1 text-sm text-[#8a5a00]">
+          목표주가는 달러 기준이라 원화 보기에서는 밴드를 그리지 않습니다.
+          「표시 통화」를 원래 통화나 달러로 바꾸면 보입니다.
+        </p>
+      )}
+
       {logScale && !canUseLog && (
         <p className="mb-1 text-sm text-[#8a5a00]">
           0 이하 값이 있어 이 지표는 로그 축을 적용하지 않았습니다.
@@ -86,7 +121,7 @@ export function MetricChart({
       )}
 
       <ResponsiveContainer width="100%" height={height}>
-        <LineChart
+        <ComposedChart
           data={rows}
           margin={CHART_MARGIN}
           onMouseMove={(state) => {
@@ -134,6 +169,52 @@ export function MetricChart({
             <ReferenceLine x={activePeriod} stroke="#16181d" strokeWidth={1.5} strokeDasharray="4 3" />
           )}
 
+          {/*
+            밴드를 선보다 먼저 그린다. 나중에 그린 것이 위에 오므로,
+            실제 주가 선이 밴드에 가려지면 안 된다.
+          */}
+          {bands.map((band) => {
+            const company = companies.find((c) => c.id === band.companyId);
+            if (company === undefined) return null;
+            return (
+              <Area
+                key={`${band.companyId}-band`}
+                type="linear"
+                dataKey={`${band.companyId}__band`}
+                stroke="none"
+                fill={company.color}
+                fillOpacity={0.14}
+                connectNulls={false}
+                isAnimationActive={false}
+                activeDot={false}
+                legendType="none"
+                name={`${company.nameKo ?? company.id} 목표주가 범위`}
+              />
+            );
+          })}
+
+          {bands.map((band) => {
+            const company = companies.find((c) => c.id === band.companyId);
+            if (company === undefined) return null;
+            return (
+              <Line
+                key={`${band.companyId}-avg`}
+                type="linear"
+                dataKey={`${band.companyId}__avg`}
+                stroke={company.color}
+                strokeWidth={1.5}
+                // 점선으로 둬야 실제 주가(실선)와 헷갈리지 않는다
+                strokeDasharray="2 4"
+                connectNulls={false}
+                dot={false}
+                activeDot={false}
+                isAnimationActive={false}
+                legendType="none"
+                name={`${company.nameKo ?? company.id} 목표주가 평균`}
+              />
+            );
+          })}
+
           {companies.map((company) => (
             <Line
               key={company.id}
@@ -150,7 +231,7 @@ export function MetricChart({
               name={company.nameKo ?? company.id}
             />
           ))}
-        </LineChart>
+        </ComposedChart>
       </ResponsiveContainer>
     </section>
   );

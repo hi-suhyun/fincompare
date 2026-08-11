@@ -10,6 +10,7 @@ import type { DartClient } from '../adapters/dart/client.js';
 import type { SecClient } from '../adapters/sec/client.js';
 import type { FxClient } from '../adapters/fx/ecb.js';
 import type { PriceAdapter } from '../adapters/price/types.js';
+import type { ConsensusAdapter } from '../adapters/consensus/types.js';
 import type { Db } from '../db/client.js';
 import { buildSeries } from '../services/series.js';
 
@@ -64,6 +65,14 @@ const SeriesQuerySchema = z
       .enum(['true', 'false'])
       .default('true')
       .transform((v) => v === 'true'),
+    /*
+     * 목표주가 밴드. 기본은 꺼짐이다.
+     * 무료 티어가 하루 250 콜이라, 보겠다고 한 적 없는 조회에서 태우면 안 된다.
+     */
+    consensus: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
   })
   .refine((v) => v.from <= v.to, {
     message: '시작 연도가 종료 연도보다 늦습니다',
@@ -77,6 +86,8 @@ export interface SeriesRouterDeps {
   fx: FxClient;
   krPrice: PriceAdapter | null;
   usPrice: PriceAdapter | null;
+  /** 목표주가 제공처. 키가 없으면 null 이고 기능이 꺼진다 */
+  consensusAdapter: ConsensusAdapter | null;
 }
 
 export function createSeriesRouter(deps: SeriesRouterDeps): Router {
@@ -106,6 +117,7 @@ export function createSeriesRouter(deps: SeriesRouterDeps): Router {
         normalize: parsed.data.normalize,
         currency: parsed.data.currency,
         adjustSplits: parsed.data.adjustSplits,
+        consensus: parsed.data.consensus,
       },
     )
       .then((result) => {

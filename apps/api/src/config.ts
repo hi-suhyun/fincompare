@@ -28,6 +28,13 @@ const ConfigSchema = z.object({
   SEC_USER_AGENT: z.string().default(''),
   KRX_AUTH_KEY: z.string().default(''),
   TIINGO_API_KEY: z.string().default(''),
+  /**
+   * 애널리스트 목표주가 (Financial Modeling Prep).
+   *
+   * 비워 두면 목표주가 기능이 통째로 꺼진다. 배포판은 반드시 비워 둔다 —
+   * FMP 약관이 데이터를 제3자가 접근 가능한 도구에 통합하는 것을 금지한다.
+   */
+  FMP_API_KEY: z.string().default(''),
   PRICE_PROVIDER_KR: z.enum(['krx', 'naver']).default('krx'),
   PRICE_PROVIDER_US: z.enum(['tiingo', 'twelvedata']).default('tiingo'),
   DATABASE_URL: z.string().default('file:./data/dev.db'),

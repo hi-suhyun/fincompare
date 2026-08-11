@@ -60,6 +60,7 @@ const DATA: SeriesResponse = {
     'US:NVDA': { source: 'SEC EDGAR', consolidation: 'CFS (연결)', basis: '각 연도 사업보고서 공시값' },
   },
   warnings: [],
+  consensus: [],
 };
 
 const NOW = new Date('2026-08-06T00:00:00Z');

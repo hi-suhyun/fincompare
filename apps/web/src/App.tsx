@@ -7,6 +7,7 @@ import { MetricPicker } from './features/metric-picker/MetricPicker.js';
 import { PeriodPicker } from './features/period-picker/PeriodPicker.js';
 import { Presets } from './features/Presets.js';
 import { CurrencyToggle } from './features/CurrencyToggle.js';
+import { ConsensusToggle } from './features/ConsensusToggle.js';
 import { AccessGate } from './features/AccessGate.js';
 import { useUrlState } from './hooks/useUrlState.js';
 import { ApiError, fetchHealth, fetchSeries, type CompanySearchResult } from './lib/api.js';
@@ -31,6 +32,7 @@ export function App(): React.ReactElement {
       state.normalize,
       state.currency,
       state.adjustSplits,
+      state.consensus,
     ],
     queryFn: () =>
       fetchSeries({
@@ -41,6 +43,7 @@ export function App(): React.ReactElement {
         normalize: state.normalize,
         currency: state.currency,
         adjustSplits: state.adjustSplits,
+        consensus: state.consensus,
       }),
     enabled: hasCompanies && !locked,
     retry: (count, err) => !(err instanceof ApiError && err.needsPassword) && count < 1,
@@ -58,6 +61,7 @@ export function App(): React.ReactElement {
     retry: false,
   });
   const usPricesEnabled = health?.capabilities?.usPrices ?? false;
+  const consensusEnabled = health?.capabilities?.consensus ?? false;
 
   const names = useMemo(() => {
     const map = new Map(pickedNames);
@@ -75,6 +79,9 @@ export function App(): React.ReactElement {
   // 국내·해외가 섞였을 때만 통화 토글이 의미를 가진다
   const isMixedMarket = countries.size > 1;
   const hasUsCompanies = countries.has('US');
+  const hasKrCompanies = countries.has('KR');
+  // 목표주가 밴드는 주가 차트 위에만 얹힌다
+  const hasPriceMetric = state.metrics.includes('closePrice');
   // 액면분할 조정은 주당 지표에만 영향을 준다. 매출액만 보고 있으면 띄울 이유가 없다.
   const hasPerShareMetric = state.metrics.some((m) => PER_SHARE_METRICS.has(m));
 
@@ -166,6 +173,14 @@ export function App(): React.ReactElement {
                     </span>
                   </label>
                 )}
+                <ConsensusToggle
+                  value={state.consensus}
+                  onChange={(consensus) => update({ consensus })}
+                  hasUsCompanies={hasUsCompanies}
+                  hasKrCompanies={hasKrCompanies}
+                  enabled={consensusEnabled}
+                  hasPriceMetric={hasPriceMetric}
+                />
                 <label className="flex items-center gap-2.5">
                   <input
                     type="checkbox"

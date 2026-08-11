@@ -23,12 +23,13 @@ describe('SqliteCacheStore', () => {
   const encode = (s: string): Uint8Array => new TextEncoder().encode(s);
   const decode = (b: Uint8Array): string => new TextDecoder().decode(b);
 
-  it('마이그레이션이 8개 테이블을 만든다', async () => {
+  it('마이그레이션이 9개 테이블을 만든다', async () => {
     const result = await handle.execute(
       "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '__drizzle%'",
     );
 
     expect(result.rows.map((r) => String(r['name'])).sort()).toEqual([
+      'analyst_targets',
       'companies',
       'company_aliases',
       'fetch_log',

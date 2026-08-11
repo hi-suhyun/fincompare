@@ -138,6 +138,27 @@ export interface SeriesWarning {
   period?: string;
 }
 
+/** 연도별 목표주가 밴드 한 점 */
+export interface ConsensusPoint {
+  year: number;
+  high: number | null;
+  avg: number | null;
+  low: number | null;
+  /** 그 해 집계에 들어간 목표주가 개수 */
+  count: number;
+}
+
+export interface CompanyConsensus {
+  companyId: string;
+  points: ConsensusPoint[];
+  /**
+   * 과거 발행분까지 받았는지.
+   * false 면 지금 시점의 컨센서스뿐이라 "그때 맞았나"는 답할 수 없다.
+   */
+  historical: boolean;
+  source: string;
+}
+
 export interface SeriesResponse {
   companies: SeriesCompany[];
   periods: string[];
@@ -145,6 +166,7 @@ export interface SeriesResponse {
   series: SeriesMetric[];
   provenance: Record<string, { source: string; consolidation: string; basis: string }>;
   warnings: SeriesWarning[];
+  consensus: CompanyConsensus[];
 }
 
 export interface SeriesParams {
@@ -155,6 +177,8 @@ export interface SeriesParams {
   normalize: boolean;
   currency: 'KRW' | 'USD' | 'native';
   adjustSplits: boolean;
+  /** 목표주가 밴드를 함께 받는다. 미국 기업만 대상 */
+  consensus: boolean;
 }
 
 export function fetchSeries(params: SeriesParams): Promise<SeriesResponse> {
@@ -166,6 +190,7 @@ export function fetchSeries(params: SeriesParams): Promise<SeriesResponse> {
     normalize: String(params.normalize),
     currency: params.currency,
     adjustSplits: String(params.adjustSplits),
+    consensus: String(params.consensus),
   });
 }
 
@@ -174,7 +199,7 @@ export interface HealthResponse {
   companies: number;
   missingKeys: string[];
   /** 이 인스턴스가 실제로 주가를 붙일 수 있는지 (셀프호스트는 키에 따라 다르다) */
-  capabilities?: { krPrices: boolean; usPrices: boolean };
+  capabilities?: { krPrices: boolean; usPrices: boolean; consensus?: boolean };
 }
 
 export function fetchHealth(): Promise<HealthResponse> {
