@@ -32,7 +32,14 @@ export function PeriodPicker({
   countries,
   onChange,
 }: Props): React.ReactElement {
-  const latest = CURRENT_YEAR - 1; // 올해 사업보고서는 아직 안 나왔다
+  /*
+   * 올해까지 고를 수 있다.
+   *
+   * 올해 사업보고서는 아직 안 나왔지만, 서버가 최근 12개월(TTM)로 채운다 —
+   * 분기 실적은 이미 공시돼 있어서 "2026년이 통째로 안 보이는" 문제가 없다.
+   * 확정 연간이 아니라는 것은 차트 아래 안내로 밝힌다.
+   */
+  const latest = CURRENT_YEAR;
 
   /**
    * 하한은 소스마다 다르다 (DART 2015, SEC 2009).
