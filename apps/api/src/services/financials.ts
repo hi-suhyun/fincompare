@@ -15,7 +15,12 @@ import type { DartClient } from '../adapters/dart/client.js';
 import type { SecClient } from '../adapters/sec/client.js';
 import { convertSecFacts } from '../adapters/sec/financials.js';
 import { convertSecQuarters } from '../adapters/sec/quarters.js';
-import { convertFinancialRows, extractCumulative, extractShares } from '../adapters/dart/financials.js';
+import {
+  convertFinancialRows,
+  convertQuarterRows,
+  extractCumulative,
+  extractShares,
+} from '../adapters/dart/financials.js';
 import {
   DartFinancialResponseSchema,
   DartStockResponseSchema,
@@ -347,13 +352,20 @@ async function storeFacts(db: Db, points: readonly FinancialDataPoint[]): Promis
 }
 
 /** 저장된 BASE 값을 (companyId -> alignedYear -> metricId -> value) 로 읽어온다 */
+/**
+ * 저장된 값을 기간 라벨로 키를 잡아 돌려준다.
+ *
+ * 라벨은 buildPeriodAxis 가 만드는 것과 같다 — 연간이면 "2024",
+ * 분기면 "2024Q1". 숫자 연도로 잡으면 분기를 담을 수 없다.
+ */
 export async function loadFacts(
   db: Db,
   companyIds: readonly string[],
   fromYear: number,
   toYear: number,
-): Promise<Map<string, Map<number, Map<BaseMetricId, number | null>>>> {
-  const out = new Map<string, Map<number, Map<BaseMetricId, number | null>>>();
+  periodType: 'FY' | 'Q' = 'FY',
+): Promise<Map<string, Map<string, Map<BaseMetricId, number | null>>>> {
+  const out = new Map<string, Map<string, Map<BaseMetricId, number | null>>>();
   if (companyIds.length === 0) return out;
 
   const rows = await db
@@ -361,6 +373,7 @@ export async function loadFacts(
       companyId: financialFacts.companyId,
       metricId: financialFacts.metricId,
       alignedYear: financialFacts.alignedYear,
+      alignedQuarter: financialFacts.alignedQuarter,
       value: financialFacts.value,
       sourceTag: financialFacts.sourceTag,
       consolidation: financialFacts.consolidation,
@@ -369,7 +382,7 @@ export async function loadFacts(
     .where(
       and(
         inArray(financialFacts.companyId, [...companyIds]),
-        eq(financialFacts.periodType, 'FY'),
+        eq(financialFacts.periodType, periodType),
         gte(financialFacts.alignedYear, fromYear),
         lte(financialFacts.alignedYear, toYear),
       ),
@@ -381,10 +394,16 @@ export async function loadFacts(
       byYear = new Map();
       out.set(row.companyId, byYear);
     }
-    let byMetric = byYear.get(row.alignedYear);
+    // buildPeriodAxis 와 같은 라벨을 만든다
+    const key =
+      row.alignedQuarter === null
+        ? String(row.alignedYear)
+        : `${row.alignedYear}Q${row.alignedQuarter}`;
+
+    let byMetric = byYear.get(key);
     if (byMetric === undefined) {
       byMetric = new Map();
-      byYear.set(row.alignedYear, byMetric);
+      byYear.set(key, byMetric);
     }
     byMetric.set(row.metricId as BaseMetricId, row.value === null ? null : Number(row.value));
   }
@@ -724,4 +743,230 @@ async function loadAnnualValue(
 
   const value = rows[0]?.value;
   return value === undefined || value === null ? null : Number(value);
+}
+
+/**
+ * 분기 시계열을 확보한다.
+ *
+ * 국내는 DART 분기·반기 보고서에서, 미국은 SEC 10-Q 에서 받는다.
+ * 조회한 기업만 그때그때 받는다 — 300개를 미리 받으면 DART 호출이
+ * 기업×연도×4 라 일일 한도를 크게 먹는다.
+ */
+export async function ensureQuarterlyFinancials(
+  deps: FinancialsDeps,
+  company: CompanyRef,
+  fromYear: number,
+  toYear: number,
+): Promise<FetchWarning[]> {
+  if (company.country === 'US') return ensureUsQuarters(deps, company, fromYear, toYear);
+  return ensureKoreanQuarters(deps, company, fromYear, toYear);
+}
+
+async function ensureUsQuarters(
+  deps: FinancialsDeps,
+  company: CompanyRef,
+  fromYear: number,
+  toYear: number,
+): Promise<FetchWarning[]> {
+  const warnings: FetchWarning[] = [];
+  if (company.cik === null) return warnings;
+
+  const have = await existingQuarters(deps.db, company.id, fromYear, toYear);
+  // 요청 구간이 이미 다 차 있으면 부르지 않는다
+  if (have.size >= (toYear - fromYear + 1) * 4) return warnings;
+
+  const facts = await deps.sec.fetchCompanyFacts(company.cik);
+  if (facts === null) return warnings;
+
+  const points = convertSecQuarters(facts, { companyId: company.id, fromYear, toYear });
+
+  /*
+   * 4분기를 채운다.
+   *
+   * 미국 기업은 4분기에 10-Q 를 내지 않고 연간 10-K 하나로 갈음한다.
+   * 그래서 SEC 에 Q4 가 아예 없어, 분기 축에서 매년 마지막 칸이 빈다.
+   * Q4 = 연간 - (1+2+3분기).
+   */
+  const byMetricYear = new Map<string, Map<number, number>>();
+  for (const point of points) {
+    if (point.alignedQuarter === null || point.value === null) continue;
+    const key = `${point.metricId}|${point.alignedYear}`;
+    let table = byMetricYear.get(key);
+    if (table === undefined) {
+      table = new Map<number, number>();
+      byMetricYear.set(key, table);
+    }
+    table.set(point.alignedQuarter, point.value);
+  }
+
+  const derived: FinancialDataPoint[] = [];
+  for (const [key, table] of byMetricYear) {
+    const [metricRaw, yearRaw] = key.split('|');
+    const metricId = metricRaw as BaseMetricId;
+    const year = Number(yearRaw);
+    if (table.has(4)) continue;
+
+    const q1 = table.get(1);
+    const q2 = table.get(2);
+    const q3 = table.get(3);
+    if (q1 === undefined || q2 === undefined || q3 === undefined) continue;
+
+    const annual = await loadAnnualValue(deps.db, company.id, year, metricId);
+    if (annual === null) continue;
+
+    // 시점 항목은 뺄셈이 성립하지 않는다. 연말 잔액이 곧 4분기 값이다.
+    const value = isFlowMetric(metricId) ? annual - q1 - q2 - q3 : annual;
+
+    derived.push({
+      companyId: company.id,
+      metricId,
+      periodType: 'Q',
+      periodStart: null,
+      periodEnd: `${year}-12-31`,
+      fiscalYear: year,
+      fiscalQuarter: 4,
+      alignedYear: year,
+      alignedQuarter: 4,
+      value,
+      currency: 'USD',
+      consolidation: 'CFS',
+      source: 'SEC',
+      sourceTag: '4분기(연간-3분기합)',
+      filedAt: null,
+    });
+  }
+
+  await storeFacts(deps.db, [...points, ...derived]);
+  return warnings;
+}
+
+/**
+ * 국내 분기.
+ *
+ * DART 는 분기별 3개월치를 thstrm_amount 로 준다. 4분기는 보고서가 따로
+ * 없어서 연간에서 3분기 누적을 빼야 하는데, 그 누적이 3분기 보고서의
+ * thstrm_add_amount 다.
+ */
+async function ensureKoreanQuarters(
+  deps: FinancialsDeps,
+  company: CompanyRef,
+  fromYear: number,
+  toYear: number,
+): Promise<FetchWarning[]> {
+  const warnings: FetchWarning[] = [];
+  if (company.corpCode === null) return warnings;
+
+  const have = await existingQuarters(deps.db, company.id, fromYear, toYear);
+
+  const REPORTS: Array<{ code: string; quarter: 1 | 2 | 3 }> = [
+    { code: REPORT_CODE.Q1, quarter: 1 },
+    { code: REPORT_CODE.HALF, quarter: 2 },
+    { code: REPORT_CODE.Q3, quarter: 3 },
+  ];
+
+  for (let year = fromYear; year <= toYear; year++) {
+    // 그 해 분기가 이미 다 있으면 건너뛴다
+    if ([1, 2, 3, 4].every((q) => have.has(`${year}Q${q}`))) continue;
+
+    const points: FinancialDataPoint[] = [];
+    /** 3분기 누적. 4분기를 역산할 때 쓴다 */
+    let q3Cumulative: Map<BaseMetricId, number | null> | null = null;
+
+    for (const report of REPORTS) {
+      let rows: StatementRows | null = null;
+      let consolidation: Consolidation = 'CFS';
+
+      for (const fs of ['CFS', 'OFS'] as const) {
+        const response = await deps.dart.call(
+          'fnlttSinglAcntAll',
+          { corp_code: company.corpCode, bsns_year: year, reprt_code: report.code, fs_div: fs },
+          DartFinancialResponseSchema,
+        );
+        if (response !== null && (response.list?.length ?? 0) > 0) {
+          rows = response.list ?? [];
+          consolidation = fs;
+          break;
+        }
+      }
+      if (rows === null) continue;
+
+      const converted = convertQuarterRows(rows, {
+        companyId: company.id,
+        fiscalYear: year,
+        quarter: report.quarter,
+        accountingMonth: company.fiscalYearEndMonth,
+        consolidation,
+      });
+      points.push(...converted);
+
+      if (report.quarter === 3) {
+        q3Cumulative = extractCumulative(rows).current;
+      }
+    }
+
+    // 4분기 = 연간 - 3분기 누적
+    if (q3Cumulative !== null) {
+      const annual = await loadAnnualValues(deps.db, company.id, year);
+      const periodEnd = periodEndFor(year, company.fiscalYearEndMonth);
+
+      for (const [metricId, cumulative] of q3Cumulative) {
+        const total = annual.get(metricId) ?? null;
+        if (total === null) continue;
+
+        // 시점 항목은 뺄셈이 성립하지 않는다. 연말 잔액이 곧 4분기 값이다.
+        const value = isFlowMetric(metricId)
+          ? cumulative === null
+            ? null
+            : total - cumulative
+          : total;
+        if (value === null) continue;
+
+        points.push({
+          companyId: company.id,
+          metricId,
+          periodType: 'Q',
+          periodStart: null,
+          periodEnd,
+          fiscalYear: year,
+          fiscalQuarter: 4,
+          alignedYear: year,
+          alignedQuarter: 4,
+          value,
+          currency: 'KRW',
+          consolidation: 'CFS',
+          source: 'DART',
+          sourceTag: '4분기(연간-3분기누적)',
+          filedAt: null,
+        });
+      }
+    }
+
+    await storeFacts(deps.db, points);
+  }
+
+  return warnings;
+}
+
+/** 이미 저장된 분기 라벨 */
+async function existingQuarters(
+  db: Db,
+  companyId: string,
+  from: number,
+  to: number,
+): Promise<Set<string>> {
+  const rows = await db
+    .selectDistinct({
+      year: financialFacts.alignedYear,
+      quarter: financialFacts.alignedQuarter,
+    })
+    .from(financialFacts)
+    .where(
+      and(
+        eq(financialFacts.companyId, companyId),
+        eq(financialFacts.periodType, 'Q'),
+        gte(financialFacts.alignedYear, from),
+        lte(financialFacts.alignedYear, to),
+      ),
+    );
+  return new Set(rows.filter((r) => r.quarter !== null).map((r) => `${r.year}Q${r.quarter}`));
 }

@@ -260,3 +260,69 @@ export function extractCumulative(rows: readonly DartFinancialRow[]): {
     priorYear: read((row) => row.frmtrm_add_amount ?? row.frmtrm_amount),
   };
 }
+
+export interface QuarterConvertOptions {
+  companyId: string;
+  fiscalYear: number;
+  quarter: 1 | 2 | 3;
+  accountingMonth: number;
+  consolidation: Consolidation;
+}
+
+/**
+ * 분기 보고서 한 건을 분기 시계열 한 점으로 바꾼다.
+ *
+ * thstrm_amount 를 쓴다 — 분기 보고서에서 이 값은 그 분기 3개월치다.
+ * 누적(thstrm_add_amount)을 쓰면 2분기가 상반기 합이 되어 분기 흐름이 아니다.
+ *
+ * 재무상태표 항목은 분기말 잔액이라 그대로 쓴다.
+ */
+export function convertQuarterRows(
+  rows: readonly DartFinancialRow[],
+  options: QuarterConvertOptions,
+): FinancialDataPoint[] {
+  const facts: RawFact[] = rows.map((row) => ({
+    tag: row.account_id,
+    name: row.account_nm,
+    statement: row.sj_div,
+    value: safeAmount(row.thstrm_amount),
+  }));
+
+  const periodEnd = quarterEnd(options.fiscalYear, options.accountingMonth, options.quarter);
+  const points: FinancialDataPoint[] = [];
+
+  for (const metricId of MAPPED_METRICS) {
+    const resolved = resolveMetric(KIFRS_ACCOUNT_MAP, metricId, facts);
+    if (resolved.value === null) continue;
+
+    points.push({
+      companyId: options.companyId,
+      metricId,
+      periodType: 'Q',
+      periodStart: null,
+      periodEnd,
+      fiscalYear: options.fiscalYear,
+      fiscalQuarter: options.quarter,
+      alignedYear: options.fiscalYear,
+      alignedQuarter: options.quarter,
+      value: resolved.value,
+      currency: 'KRW',
+      consolidation: options.consolidation,
+      source: 'DART',
+      sourceTag: resolved.sourceTag ?? '(미발견)',
+      filedAt: null,
+    });
+  }
+
+  return points;
+}
+
+/** 분기말 날짜. 결산월 기준으로 3·6·9개월 뒤 */
+function quarterEnd(fiscalYear: number, accountingMonth: number, quarter: 1 | 2 | 3): string {
+  const startMonth = (accountingMonth % 12) + 1;
+  const raw = startMonth + quarter * 3 - 1;
+  const endMonth = ((raw - 1) % 12) + 1;
+  const endYear = raw > 12 ? fiscalYear + 1 : fiscalYear;
+  const lastDay = new Date(Date.UTC(endYear, endMonth, 0)).getUTCDate();
+  return `${endYear}-${String(endMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+}

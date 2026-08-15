@@ -27,6 +27,7 @@ import { convertValue, fiscalPeriodBounds } from './currency.js';
 import {
   ensureAnnualFinancials,
   ensureInterimTtm,
+  ensureQuarterlyFinancials,
   loadCompanies,
   loadFacts,
 } from './financials.js';
@@ -71,6 +72,13 @@ export interface SeriesRequest {
    * 않기로 했으므로(저작권) 링크아웃만 제공한다.
    */
   consensus: boolean;
+  /**
+   * 축 단위. 'Q' 면 분기별로 그린다.
+   *
+   * 분기는 조회한 기업만 그때그때 받는다 — 미리 다 받으면 DART 호출이
+   * 기업×연도×4 라 일일 한도를 크게 먹는다.
+   */
+  periodType: 'FY' | 'Q';
 }
 
 export interface SeriesCompany {
@@ -192,7 +200,8 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
   /** 기업 ID -> 어느 분기까지 반영된 TTM 인지 */
   const interimYears = new Map<string, string>();
 
-  if (request.toYear >= currentYear) {
+  // 분기 축에서는 TTM 이 필요 없다. 분기가 그대로 다 보인다.
+  if (request.periodType === 'FY' && request.toYear >= currentYear) {
     const results = await Promise.allSettled(
       companies.map((company) => ensureInterimTtm(deps, company, currentYear)),
     );
@@ -203,8 +212,22 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
     }
   }
 
-  const facts = await loadFacts(deps.db, request.companyIds, fetchFrom, request.toYear);
-  const periods = buildPeriodAxis(request.fromYear, request.toYear, 'FY');
+  if (request.periodType === 'Q') {
+    await Promise.allSettled(
+      companies.map((company) =>
+        ensureQuarterlyFinancials(deps, company, request.fromYear, request.toYear),
+      ),
+    );
+  }
+
+  const facts = await loadFacts(
+    deps.db,
+    request.companyIds,
+    fetchFrom,
+    request.toYear,
+    request.periodType,
+  );
+  const periods = buildPeriodAxis(request.fromYear, request.toYear, request.periodType);
 
   if (needsPrice) applySplitAdjustment(deps, companies, facts, periods, warnings);
 
@@ -216,7 +239,7 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
   for (const company of companies) {
     const byYear = facts.get(company.id);
     if (byYear === undefined) continue;
-    const shares = periods.map((p) => byYear.get(Number(p))?.get('sharesOutstanding') ?? null);
+    const shares = periods.map((p) => byYear.get(p)?.get('sharesOutstanding') ?? null);
     const events = detectSplits(periods, shares);
     if (events.length > 0) splitEvents.set(company.id, events);
   }
@@ -229,7 +252,7 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
   for (const company of companies) {
     const byYear = facts.get(company.id);
     if (byYear === undefined) continue;
-    const shares = periods.map((p) => byYear.get(Number(p))?.get('sharesOutstanding') ?? null);
+    const shares = periods.map((p) => byYear.get(p)?.get('sharesOutstanding') ?? null);
     const factors = splitAdjustmentFactors(periods, shares);
     if (factors.some((f) => f !== 1)) splitFactorsById.set(company.id, factors);
   }
@@ -259,7 +282,8 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
    * 알릴 것이 있을 때만 경고가 쌓인다.
    */
   const consensus: CompanyConsensus[] = [];
-  if (request.consensus) {
+  // 컨센서스 추정치는 연간 단위라 분기 축에 얹을 수 없다
+  if (request.consensus && request.periodType === 'FY') {
     const consensusWarnings: ConsensusWarning[] = [];
     const years = periods.map(Number);
     const results = await Promise.all(
@@ -343,16 +367,28 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
 
     for (const company of companies) {
       const byYear = facts.get(company.id);
-      const raw = periods.map((period) => {
-        const year = Number(period);
-        const yearFacts = byYear?.get(year);
+      const raw = periods.map((period, periodIndex) => {
+        const yearFacts = byYear?.get(period);
         if (yearFacts === undefined) return null;
 
         if (!isDerivedMetric(metricId)) {
           return yearFacts.get(metricId as BaseMetricId) ?? null;
         }
 
-        const prevFacts = byYear?.get(year - 1);
+        /*
+         * ROE 는 기초자본이 필요하다. 직전 기간을 축 배열에서 한 칸 앞으로
+         * 찾는다 — 연도에서 1 을 빼면 분기 축(2024Q1 -> 2023Q1)에서 어긋난다.
+         *
+         * 축의 첫 칸은 앞이 없다. loadFacts 가 한 해 앞서 받아 두므로
+         * 연간에서는 라벨을 직접 만들어 메운다.
+         */
+        const prevKey =
+          periodIndex > 0
+            ? (periods[periodIndex - 1] ?? null)
+            : period.includes('Q')
+              ? null
+              : String(Number(period) - 1);
+        const prevFacts = prevKey === null ? undefined : byYear?.get(prevKey);
         const result = deriveMetric(metricId, yearFacts, prevFacts);
         for (const code of result.warnings) {
           warnings.push({ companyId: company.id, metricId, code, period });
@@ -521,14 +557,14 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
  */
 function applyDisplaySplitAdjustment(
   companies: readonly { id: string }[],
-  facts: Map<string, Map<number, Map<BaseMetricId, number | null>>>,
+  facts: Map<string, Map<string, Map<BaseMetricId, number | null>>>,
   periods: readonly string[],
 ): void {
   for (const company of companies) {
     const byYear = facts.get(company.id);
     if (byYear === undefined) continue;
 
-    const shares = periods.map((p) => byYear.get(Number(p))?.get('sharesOutstanding') ?? null);
+    const shares = periods.map((p) => byYear.get(p)?.get('sharesOutstanding') ?? null);
     const factors = splitAdjustmentFactors(periods, shares);
     if (factors.every((f) => f === 1)) continue;
 
@@ -536,7 +572,7 @@ function applyDisplaySplitAdjustment(
       const factor = factors[index] ?? 1;
       if (factor === 1) continue;
 
-      const metrics = byYear.get(Number(period));
+      const metrics = byYear.get(period);
       if (metrics === undefined) continue;
 
       for (const perShare of ['eps', 'closePrice'] as const) {
@@ -554,7 +590,7 @@ function applyDisplaySplitAdjustment(
 function applySplitAdjustment(
   deps: SeriesDeps,
   companies: readonly { id: string; country: string; market: string; stockCode: string | null; ticker: string | null; fiscalYearEndMonth: number }[],
-  facts: Map<string, Map<number, Map<BaseMetricId, number | null>>>,
+  facts: Map<string, Map<string, Map<BaseMetricId, number | null>>>,
   periods: readonly string[],
   warnings: SeriesWarning[],
 ): void {
@@ -564,7 +600,7 @@ function applySplitAdjustment(
     const byYear = facts.get(company.id);
     if (byYear === undefined) continue;
 
-    const shares = periods.map((p) => byYear.get(Number(p))?.get('sharesOutstanding') ?? null);
+    const shares = periods.map((p) => byYear.get(p)?.get('sharesOutstanding') ?? null);
     const factors = splitAdjustmentFactors(periods, shares);
     if (factors.every((f) => f === 1)) continue;
 
@@ -572,7 +608,7 @@ function applySplitAdjustment(
       const factor = factors[index] ?? 1;
       if (factor === 1) continue;
 
-      const metrics = byYear.get(Number(period));
+      const metrics = byYear.get(period);
       if (metrics === undefined) continue;
 
       const eps = metrics.get('eps');
@@ -607,7 +643,7 @@ function applySplitAdjustment(
 async function applyCurrency(
   deps: SeriesDeps,
   companies: readonly { id: string; country: string; fiscalYearEndMonth: number }[],
-  facts: Map<string, Map<number, Map<BaseMetricId, number | null>>>,
+  facts: Map<string, Map<string, Map<BaseMetricId, number | null>>>,
   fromYear: number,
   toYear: number,
   target: 'KRW' | 'USD' | 'native',
@@ -654,7 +690,9 @@ async function applyCurrency(
       continue;
     }
 
-    for (const [year, metrics] of byYear) {
+    for (const [periodKey, metrics] of byYear) {
+      // 라벨은 "2024" 또는 "2024Q1" 이다. 환산 기준 시점은 연도로 잡는다.
+      const year = Number(periodKey.split('Q')[0]);
       const bounds = fiscalPeriodBounds(year, company.fiscalYearEndMonth);
       for (const [metricId, value] of metrics) {
         metrics.set(

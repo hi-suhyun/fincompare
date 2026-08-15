@@ -42,6 +42,12 @@ export interface AppState {
    * 무료 티어가 하루 250 콜이라, 보겠다고 한 적 없는 조회에서 태우지 않는다.
    */
   consensus: boolean;
+  /**
+   * 축 단위. 'Q' 면 분기별로 본다.
+   *
+   * 분기는 조회한 기업만 그때그때 받으므로 첫 조회가 조금 느리다.
+   */
+  periodType: 'FY' | 'Q';
 }
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -59,6 +65,7 @@ export const DEFAULT_STATE: AppState = {
   overlay: false,
   adjustSplits: true,
   consensus: false,
+  periodType: 'FY',
 };
 
 function clampYear(value: number, fallback: number): number {
@@ -100,6 +107,7 @@ function parseState(search: string): AppState {
     // 기본이 켜짐이라 꺼진 경우만 URL 에 남는다
     adjustSplits: params.get('adj') !== '0',
     consensus: params.get('cons') === '1',
+    periodType: params.get('pt') === 'Q' ? 'Q' : 'FY',
   };
 }
 
@@ -118,6 +126,7 @@ function toSearch(state: AppState): string {
   if (state.currency !== 'native') params.set('cur', state.currency);
   if (!state.adjustSplits) params.set('adj', '0');
   if (state.consensus) params.set('cons', '1');
+  if (state.periodType === 'Q') params.set('pt', 'Q');
   return params.toString();
 }
 

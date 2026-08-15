@@ -73,6 +73,8 @@ const SeriesQuerySchema = z
       .enum(['true', 'false'])
       .default('false')
       .transform((v) => v === 'true'),
+    /** 축 단위. 분기는 조회한 기업만 그때그때 받는다 */
+    periodType: z.enum(['FY', 'Q']).default('FY'),
   })
   .refine((v) => v.from <= v.to, {
     message: '시작 연도가 종료 연도보다 늦습니다',
@@ -118,6 +120,7 @@ export function createSeriesRouter(deps: SeriesRouterDeps): Router {
         currency: parsed.data.currency,
         adjustSplits: parsed.data.adjustSplits,
         consensus: parsed.data.consensus,
+        periodType: parsed.data.periodType,
       },
     )
       .then((result) => {

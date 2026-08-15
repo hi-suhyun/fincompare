@@ -13,6 +13,7 @@ import { PeriodPicker } from './features/period-picker/PeriodPicker.js';
 import { Presets } from './features/Presets.js';
 import { CurrencyToggle } from './features/CurrencyToggle.js';
 import { ConsensusToggle } from './features/ConsensusToggle.js';
+import { PeriodTypeToggle } from './features/PeriodTypeToggle.js';
 import { AccessGate } from './features/AccessGate.js';
 import { useUrlState } from './hooks/useUrlState.js';
 import { ApiError, fetchHealth, fetchSeries, type CompanySearchResult } from './lib/api.js';
@@ -38,6 +39,7 @@ export function App(): React.ReactElement {
       state.currency,
       state.adjustSplits,
       state.consensus,
+      state.periodType,
     ],
     queryFn: () =>
       fetchSeries({
@@ -49,6 +51,7 @@ export function App(): React.ReactElement {
         currency: state.currency,
         adjustSplits: state.adjustSplits,
         consensus: state.consensus,
+        periodType: state.periodType,
       }),
     enabled: hasCompanies && !locked,
     retry: (count, err) => !(err instanceof ApiError && err.needsPassword) && count < 1,
@@ -144,6 +147,11 @@ export function App(): React.ReactElement {
               usPricesEnabled={usPricesEnabled}
             />
             <hr className="border-[var(--line)]" />
+            <PeriodTypeToggle
+              value={state.periodType}
+              onChange={(periodType) => update({ periodType })}
+              consensusOn={state.consensus}
+            />
             <div className="flex flex-wrap items-start justify-between gap-4">
               <PeriodPicker
                 fromYear={state.fromYear}

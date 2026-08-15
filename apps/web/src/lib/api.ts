@@ -184,6 +184,8 @@ export interface SeriesParams {
   adjustSplits: boolean;
   /** 애널리스트 컨센서스를 함께 받는다. 미국 기업만 대상 */
   consensus: boolean;
+  /** 축 단위. 'Q' 면 분기별로 그린다 */
+  periodType: 'FY' | 'Q';
 }
 
 export function fetchSeries(params: SeriesParams): Promise<SeriesResponse> {
@@ -196,6 +198,7 @@ export function fetchSeries(params: SeriesParams): Promise<SeriesResponse> {
     currency: params.currency,
     adjustSplits: String(params.adjustSplits),
     consensus: String(params.consensus),
+    periodType: params.periodType,
   });
 }
 
