@@ -1,6 +1,9 @@
 import {
+  TTM_WINDOW,
   alignPeriod,
+  isFlowMetric,
   ttmFromCumulative,
+  ttmValue,
   type BaseMetricId,
   type Consolidation,
   type FinancialDataPoint,
@@ -11,6 +14,7 @@ import type { z } from 'zod';
 import type { DartClient } from '../adapters/dart/client.js';
 import type { SecClient } from '../adapters/sec/client.js';
 import { convertSecFacts } from '../adapters/sec/financials.js';
+import { convertSecQuarters } from '../adapters/sec/quarters.js';
 import { convertFinancialRows, extractCumulative, extractShares } from '../adapters/dart/financials.js';
 import {
   DartFinancialResponseSchema,
@@ -428,8 +432,8 @@ export async function ensureInterimTtm(
   company: CompanyRef,
   year: number,
 ): Promise<{ label: string | null }> {
-  // 미국은 SEC companyfacts 에 분기가 함께 오므로 이 경로가 필요 없다
-  if (company.country !== 'KR' || company.corpCode === null) return { label: null };
+  if (company.country === 'US') return ensureUsInterimTtm(deps, company, year);
+  if (company.corpCode === null) return { label: null };
 
   const existing = await db_hasInterimLabel(deps.db, company.id, year);
   if (existing !== null) return { label: existing };
@@ -562,4 +566,162 @@ function quarterEndFor(fiscalYear: number, accountingMonth: number, through: 1 |
   const endYear = startMonth + through * 3 - 1 > 12 ? fiscalYear + 1 : fiscalYear;
   const lastDay = new Date(Date.UTC(endYear, endMonth, 0)).getUTCDate();
   return `${endYear}-${String(endMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+}
+
+
+/**
+ * 미국 기업의 진행 중인 회계연도 TTM.
+ *
+ * SEC companyfacts 는 10-Q 로 분기를 함께 준다. 국내처럼 누적을 빼고 더할
+ * 필요 없이 **최근 4개 분기를 그대로 합산**하면 된다.
+ *
+ * 엔비디아는 1월 결산이라 2026년 8월이면 FY2027 이 진행 중이다. 우리 축의
+ * 2026년이 그 해인데, 연간 확정치가 없어 통째로 비어 있었다.
+ */
+async function ensureUsInterimTtm(
+  deps: FinancialsDeps,
+  company: CompanyRef,
+  year: number,
+): Promise<{ label: string | null }> {
+  if (company.cik === null) return { label: null };
+
+  const existing = await db_hasInterimLabel(deps.db, company.id, year);
+  if (existing !== null) return { label: existing };
+
+  const facts = await deps.sec.fetchCompanyFacts(company.cik);
+  if (facts === null) return { label: null };
+
+  // 진행 중인 해와 직전 해의 분기를 모두 받아야 4개가 채워진다
+  const quarters = convertSecQuarters(facts, {
+    companyId: company.id,
+    fromYear: year - 2,
+    toYear: year,
+  });
+
+  /** metricId -> "YYYYQn" -> 값 */
+  const byMetric = new Map<BaseMetricId, Map<string, number | null>>();
+  for (const point of quarters) {
+    let table = byMetric.get(point.metricId);
+    if (table === undefined) {
+      table = new Map<string, number | null>();
+      byMetric.set(point.metricId, table);
+    }
+    table.set(`${point.alignedYear}Q${point.alignedQuarter ?? 0}`, point.value);
+  }
+
+  /*
+   * 4분기를 채운다.
+   *
+   * 미국 기업은 4분기에 10-Q 를 내지 않는다 — 연간 10-K 하나로 갈음한다.
+   * 그래서 SEC 에는 Q4 가 아예 없고, 최근 4개 분기를 모으면 항상 한 칸이 빈다.
+   *
+   * Q4 = 연간 - (1+2+3분기). 연간 확정치는 이미 DB 에 있으므로 그걸 쓴다.
+   */
+  for (const [metricId, table] of byMetric) {
+    if (!isFlowMetric(metricId)) continue;
+
+    for (const y of [year - 1, year - 2]) {
+      if (table.get(`${y}Q4`) != null) continue;
+
+      const q1 = table.get(`${y}Q1`);
+      const q2 = table.get(`${y}Q2`);
+      const q3 = table.get(`${y}Q3`);
+      if (q1 == null || q2 == null || q3 == null) continue;
+
+      const annual = await loadAnnualValue(deps.db, company.id, y, metricId);
+      if (annual === null) continue;
+
+      table.set(`${y}Q4`, annual - q1 - q2 - q3);
+    }
+  }
+
+  // 진행 중인 해에 실제로 보고된 마지막 분기를 찾는다
+  let latestQuarter = 0;
+  for (const table of byMetric.values()) {
+    for (let q = 4; q >= 1; q--) {
+      if (table.get(`${year}Q${q}`) != null) {
+        latestQuarter = Math.max(latestQuarter, q);
+        break;
+      }
+    }
+  }
+  if (latestQuarter === 0) return { label: null };
+
+  /** 최근 4개 분기 키. 진행 중인 해의 마지막 분기부터 거꾸로 */
+  const window: string[] = [];
+  for (let i = 0; i < TTM_WINDOW; i++) {
+    const offset = latestQuarter - i;
+    const y = offset > 0 ? year : year - 1;
+    const q = offset > 0 ? offset : offset + 4;
+    window.unshift(`${y}Q${q}`);
+  }
+
+  const periodEnd = quarters
+    .filter((p) => p.alignedYear === year && p.alignedQuarter === latestQuarter)
+    .map((p) => p.periodEnd)
+    .sort()
+    .pop();
+  if (periodEnd === undefined) return { label: null };
+
+  const aligned = alignPeriod(periodEnd, 'FY');
+  const points: FinancialDataPoint[] = [];
+
+  for (const [metricId, table] of byMetric) {
+    const values = window.map((key) => table.get(key) ?? null);
+    // 4개 중 하나라도 없으면 null 이다. 부분 합산은 과소 집계를 진짜처럼 보이게 한다.
+    if (values.some((v) => v === null)) continue;
+
+    const value = ttmValue(metricId, values);
+    if (value === null) continue;
+
+    points.push({
+      companyId: company.id,
+      metricId,
+      // 연간 축에 얹히지만 확정 연간이 아니다. sourceTag 로 구분한다.
+      periodType: 'FY',
+      periodStart: null,
+      periodEnd,
+      fiscalYear: year,
+      fiscalQuarter: latestQuarter,
+      alignedYear: aligned.alignedYear,
+      alignedQuarter: null,
+      value,
+      currency: 'USD',
+      consolidation: 'CFS',
+      source: 'SEC',
+      sourceTag: `TTM(${latestQuarter}분기까지)`,
+      filedAt: null,
+    });
+  }
+
+  if (points.length === 0) return { label: null };
+  await storeFacts(deps.db, points);
+  return { label: quarterLabel(Math.min(latestQuarter, 3) as 1 | 2 | 3) };
+}
+
+
+/** 한 지표의 연간 확정치. Q4 를 역산할 때 쓴다 */
+async function loadAnnualValue(
+  db: Db,
+  companyId: string,
+  year: number,
+  metricId: BaseMetricId,
+): Promise<number | null> {
+  const rows = await db
+    .select({ value: financialFacts.value })
+    .from(financialFacts)
+    .where(
+      and(
+        eq(financialFacts.companyId, companyId),
+        eq(financialFacts.alignedYear, year),
+        eq(financialFacts.metricId, metricId),
+        eq(financialFacts.periodType, 'FY'),
+        // TTM 을 기준선으로 삼으면 오차가 누적된다. 확정 연간만 쓴다.
+        sql`${financialFacts.sourceTag} NOT LIKE 'TTM(%'`,
+      ),
+    )
+    .limit(1);
+
+  const value = rows[0]?.value;
+  return value === undefined || value === null ? null : Number(value);
 }
