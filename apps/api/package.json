@@ -14,7 +14,9 @@
     "verify:dart": "tsx src/scripts/verifyDart.ts",
     "seed": "tsx src/scripts/seed.ts",
     "seed:us": "tsx src/scripts/seedUs.ts",
-    "backfill:us": "tsx src/scripts/backfillUs.ts"
+    "backfill:us": "tsx src/scripts/backfillUs.ts",
+    "backfill:kr-prices": "tsx src/scripts/backfillKrPrices.ts",
+    "backfill:kr": "tsx src/scripts/backfillKr.ts"
   },
   "dependencies": {
     "@fincompare/shared": "workspace:*",

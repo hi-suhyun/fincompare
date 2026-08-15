@@ -22,20 +22,15 @@ import { DEFAULT_LIMITS, RateLimiter } from './core/rateLimiter.js';
 import { SqliteCacheStore } from './db/cacheStore.js';
 
 /**
- * 앱 조립. 서버 실행(listen)과 분리해 둔 이유는 서버리스 때문이다.
+ * 앱 조립.
  *
- * Vercel 함수는 포트를 열지 않고 핸들러만 부른다. 로컬은 index.ts 가
- * 이걸 받아 listen 한다.
+ * 서버 실행(listen)과 분리해 둔 덕에 테스트에서 포트를 열지 않고
+ * 앱만 세워 볼 수 있다. index.ts 가 이걸 받아 listen 한다.
  */
 
 export interface CreateAppOptions {
   config?: Config;
-  /**
-   * 마이그레이션을 켤지.
-   *
-   * 서버리스에서는 꺼야 한다. 콜드 스타트마다 원격 DB 에 마이그레이션을 돌리면
-   * 첫 응답이 느려지고 Turso 호출만 낭비한다. 배포 스키마는 배포 전에 맞춰 둔다.
-   */
+  /** 마이그레이션을 켤지. 테스트에서 이미 세운 DB 를 쓸 때 끈다 */
   migrate?: boolean;
 }
 
@@ -49,7 +44,6 @@ export async function createApp(options: CreateAppOptions = {}): Promise<AppBund
   const config = options.config ?? loadConfig();
 
   const handle = await createDb(config.DATABASE_URL, {
-    ...(config.TURSO_AUTH_TOKEN === '' ? {} : { authToken: config.TURSO_AUTH_TOKEN }),
     migrateOnStart: options.migrate ?? true,
   });
 

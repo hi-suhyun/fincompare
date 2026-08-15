@@ -1,0 +1,1 @@
+ALTER TABLE `companies` ADD `market_cap` text;

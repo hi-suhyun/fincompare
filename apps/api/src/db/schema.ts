@@ -36,6 +36,13 @@ export const companies = sqliteTable(
      * Phase 5 에서 시가총액이 들어오면 그것으로 대체할 수 있다.
      */
     prominence: integer('prominence').notNull().default(0),
+    /**
+     * 최근 시가총액 (원). KRX 가 계산해서 주는 값을 그대로 담는다.
+     *
+     * 백필 우선순위와 검색 랭킹의 실제 근거다. prominence 는 수기 목록이라
+     * 상위권이 전부 100 으로 뭉쳐 순서가 사실상 무작위였다.
+     */
+    marketCap: text('market_cap'),
     updatedAt: text('updated_at').notNull(),
   },
   (t) => [

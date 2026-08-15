@@ -53,6 +53,16 @@ const ENDPOINT_BY_MARKET = {
 
 export type KrxMarket = keyof typeof ENDPOINT_BY_MARKET;
 
+/** 하루치 전 종목 시세 한 줄 */
+export interface KrxDailyRow {
+  stockCode: string;
+  date: string;
+  close: number;
+  /** 시가총액. KRX 가 계산해서 주므로 우리가 주가×주식수 하지 않는다 */
+  marketCap: number | null;
+  listedShares: number | null;
+}
+
 const DAY_MS = 86_400_000;
 
 /**
@@ -141,6 +151,37 @@ export class KrxPriceAdapter implements PriceAdapter {
     }
 
     return null;
+  }
+
+  /**
+   * 하루치 전 종목 시세를 통째로 받는다.
+   *
+   * 백필용이다. KRX 는 한 번 호출에 그 날 상장된 모든 종목이 오므로,
+   * 종목별로 부르면 2,600배를 낭비하게 된다. 연말 10개 날짜만 받으면
+   * 전 종목 10년치가 20번 호출(시장 2개 × 10년)로 채워진다.
+   *
+   * 휴장일이면 빈 배열이 온다 — 호출한 쪽에서 직전 거래일로 거슬러야 한다.
+   */
+  async fetchMarketDay(market: KrxMarket, date: string): Promise<KrxDailyRow[]> {
+    const rows = await this.fetchDay(ENDPOINT_BY_MARKET[market], date.replace(/-/g, ''));
+
+    const out: KrxDailyRow[] = [];
+    for (const row of rows) {
+      const close = Number(row.TDD_CLSPRC.replace(/,/g, ''));
+      if (!Number.isFinite(close) || close <= 0) continue;
+
+      const marketCap = row.MKTCAP === undefined ? null : Number(row.MKTCAP.replace(/,/g, ''));
+      const shares = row.LIST_SHRS === undefined ? null : Number(row.LIST_SHRS.replace(/,/g, ''));
+
+      out.push({
+        stockCode: row.ISU_CD.trim(),
+        date: `${row.BAS_DD.slice(0, 4)}-${row.BAS_DD.slice(4, 6)}-${row.BAS_DD.slice(6, 8)}`,
+        close,
+        marketCap: marketCap !== null && Number.isFinite(marketCap) ? marketCap : null,
+        listedShares: shares !== null && Number.isFinite(shares) ? shares : null,
+      });
+    }
+    return out;
   }
 
   private async fetchDay(

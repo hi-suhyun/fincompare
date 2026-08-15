@@ -29,21 +29,25 @@ const ConfigSchema = z.object({
   KRX_AUTH_KEY: z.string().default(''),
   TIINGO_API_KEY: z.string().default(''),
   /**
-   * 애널리스트 목표주가 (Financial Modeling Prep).
+   * 애널리스트 컨센서스 (Financial Modeling Prep).
    *
-   * 비워 두면 목표주가 기능이 통째로 꺼진다. 배포판은 반드시 비워 둔다 —
-   * FMP 약관이 데이터를 제3자가 접근 가능한 도구에 통합하는 것을 금지한다.
+   * 비워 두면 컨센서스 기능이 꺼진다. 나머지는 그대로 동작한다.
+   *
+   * 이 도구가 로컬 전용인 이유가 여기 있다. FMP 약관은 데이터를 "제3자가
+   * 접근 가능한 도구에 통합"하는 것을 금지하는데, 각자 자기 키로 자기
+   * 컴퓨터에서 받아 보는 건 재배포가 아니라 본인 데이터다.
    */
   FMP_API_KEY: z.string().default(''),
   PRICE_PROVIDER_KR: z.enum(['krx', 'naver']).default('krx'),
   PRICE_PROVIDER_US: z.enum(['tiingo', 'twelvedata']).default('tiingo'),
+  /** 로컬 SQLite 파일. 이 도구는 각자 자기 컴퓨터에서 돌린다 */
   DATABASE_URL: z.string().default('file:./data/dev.db'),
-  /** libsql:// 원격 DB 를 쓸 때만 필요하다. 로컬 파일에는 안 쓴다 */
-  TURSO_AUTH_TOKEN: z.string().default(''),
   PORT: z.coerce.number().int().positive().default(3100),
   /**
-   * 가족 전용 접근 비밀번호. 비워 두면 게이트를 걸지 않는다 (로컬 개발).
-   * 배포에서는 반드시 채운다 — URL 이 알려지면 DART 일일 한도가 공유된다.
+   * 접근 비밀번호. 로컬 전용 도구라 보통은 비워 둔다.
+   *
+   * 집 네트워크의 다른 기기에서 열어 볼 때처럼 굳이 막고 싶은 경우에만 채운다.
+   * 채우면 API 전체가 비밀번호 뒤로 들어간다.
    */
   ACCESS_PASSWORD: z.string().default(''),
 });

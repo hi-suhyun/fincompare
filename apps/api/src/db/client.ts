@@ -16,16 +16,12 @@ type LibsqlClient = ReturnType<typeof createClient>;
 /**
  * libSQL(SQLite 호환) 클라이언트.
  *
- * 드라이버를 better-sqlite3 대신 libSQL 로 쓰는 이유는 배포 때문이다.
- * Vercel 은 서버리스라 파일시스템이 요청마다 초기화된다 — SQLite 파일을 두면
- * 기업 마스터와 캐시가 통째로 사라진다. libSQL 은 같은 SQL 방언으로
- * 원격 DB(Turso)에 붙을 수 있어서, 로컬은 파일 그대로 두고
- * 배포만 URL 을 바꾸면 된다. Drizzle 을 쓴 덕에 스키마·쿼리는 손대지 않는다.
+ * 이 도구는 각자 자기 컴퓨터에서 돌린다. DB 는 로컬 SQLite 파일 하나다 —
+ * 받은 공시·주가가 그 파일에 쌓이고, 두 번째 조회부터는 네트워크를 타지 않는다.
  *
  * DATABASE_URL 형식:
- *   file:./data/dev.db        로컬 파일
+ *   file:./data/dev.db        로컬 파일 (기본)
  *   :memory:                  테스트
- *   libsql://xxx.turso.io     원격 (TURSO_AUTH_TOKEN 필요)
  */
 
 export type DbHandle = Awaited<ReturnType<typeof createDb>>;

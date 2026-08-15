@@ -5,7 +5,7 @@ import {
   type FinancialDataPoint,
   type WarningCode,
 } from '@fincompare/shared';
-import { and, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, lte, not, sql } from 'drizzle-orm';
 import type { z } from 'zod';
 import type { DartClient } from '../adapters/dart/client.js';
 import type { SecClient } from '../adapters/sec/client.js';
@@ -66,6 +66,14 @@ async function existingYears(db: Db, companyId: string, from: number, to: number
         eq(financialFacts.periodType, 'FY'),
         gte(financialFacts.fiscalYear, from),
         lte(financialFacts.fiscalYear, to),
+        /*
+         * 주가는 "재무데이터가 있다"의 근거가 되지 못한다.
+         *
+         * 주가는 거래소에서 따로 받아 같은 테이블에 담기므로, 이 조건이 없으면
+         * 주가만 채워진 기업이 "이미 수집됨"으로 잡혀 공시 수집이 통째로
+         * 막힌다. LG에너지솔루션이 KRX 주가 4건 때문에 재무 0건이 됐다.
+         */
+        not(eq(financialFacts.metricId, 'closePrice')),
       ),
     );
   return new Set(rows.map((r) => r.fiscalYear));
