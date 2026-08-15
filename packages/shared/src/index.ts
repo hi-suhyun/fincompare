@@ -8,6 +8,7 @@ export * from './viz/palette.js';
 export * from './metrics/formulas.js';
 export * from './metrics/derive.js';
 export * from './metrics/ttm.js';
+export * from './metrics/interim.js';
 export * from './metrics/normalize.js';
 export * from './metrics/splits.js';
 export * from './mapping/types.js';

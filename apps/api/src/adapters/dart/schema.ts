@@ -29,6 +29,15 @@ export const DartFinancialRowSchema = z.object({
   thstrm_nm: z.string().optional(),
   /** 당기 금액. '' 이 올 수 있다 */
   thstrm_amount: z.string().optional(),
+  /**
+   * 당기 누적. 분기·반기 보고서에만 온다.
+   *
+   * 반기보고서면 thstrm_amount 는 2분기 3개월치, thstrm_add_amount 는
+   * 상반기 6개월치다. TTM 을 만들 때 필요한 쪽은 누적이다.
+   */
+  thstrm_add_amount: z.string().optional(),
+  /** 전기 같은 기간 누적. TTM = 직전 연간 + 당기누적 - 전기누적 */
+  frmtrm_add_amount: z.string().optional(),
   /** 전기 금액 */
   frmtrm_nm: z.string().optional(),
   frmtrm_amount: z.string().optional(),

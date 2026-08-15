@@ -1,5 +1,6 @@
 import {
   alignPeriod,
+  ttmFromCumulative,
   type BaseMetricId,
   type Consolidation,
   type FinancialDataPoint,
@@ -10,7 +11,7 @@ import type { z } from 'zod';
 import type { DartClient } from '../adapters/dart/client.js';
 import type { SecClient } from '../adapters/sec/client.js';
 import { convertSecFacts } from '../adapters/sec/financials.js';
-import { convertFinancialRows, extractShares } from '../adapters/dart/financials.js';
+import { convertFinancialRows, extractCumulative, extractShares } from '../adapters/dart/financials.js';
 import {
   DartFinancialResponseSchema,
   DartStockResponseSchema,
@@ -408,4 +409,157 @@ export async function loadCompanies(db: Db, ids: readonly string[]): Promise<Com
   // 요청 순서를 유지한다. 색상 배정이 순서에 묶여 있어서 뒤섞이면 안 된다.
   const byId = new Map(rows.map((r) => [r.id, r]));
   return ids.map((id) => byId.get(id)).filter((r): r is NonNullable<typeof r> => r !== undefined);
+}
+
+/**
+ * 진행 중인 회계연도의 최근 12개월 실적(TTM)을 확보한다.
+ *
+ * 회계연도가 끝나기 전에는 연간 수치가 존재하지 않는다. 2026년 8월에
+ * 삼성전자를 보면 FY2026 은 2027년 3월에야 공시되므로, 연간만 그리면
+ * 최근 8개월이 통째로 안 보인다 — "네이버에는 나오는데 여기선 안 보인다".
+ *
+ * 최신 분기 보고서 하나로 해결한다. 그 응답에 당기 누적과 전기 같은 기간
+ * 누적이 함께 들어 있어서, TTM = 직전 연간 + 당기누적 - 전기누적 이 된다.
+ * 분기를 4번 받아 더하는 것보다 호출이 적다 — DART 는 기업×연도마다
+ * 불러야 해서 이 차이가 크다.
+ */
+export async function ensureInterimTtm(
+  deps: FinancialsDeps,
+  company: CompanyRef,
+  year: number,
+): Promise<{ label: string | null }> {
+  // 미국은 SEC companyfacts 에 분기가 함께 오므로 이 경로가 필요 없다
+  if (company.country !== 'KR' || company.corpCode === null) return { label: null };
+
+  const existing = await db_hasInterimLabel(deps.db, company.id, year);
+  if (existing !== null) return { label: existing };
+
+  // 늦은 분기부터 본다. 3분기가 있으면 그게 가장 최신이다.
+  const attempts: Array<{ code: string; through: 1 | 2 | 3 }> = [
+    { code: REPORT_CODE.Q3, through: 3 },
+    { code: REPORT_CODE.HALF, through: 2 },
+    { code: REPORT_CODE.Q1, through: 1 },
+  ];
+
+  for (const attempt of attempts) {
+    let rows: StatementRows | null = null;
+    let consolidation: Consolidation = 'CFS';
+
+    for (const fs of ['CFS', 'OFS'] as const) {
+      const response = await deps.dart.call(
+        'fnlttSinglAcntAll',
+        { corp_code: company.corpCode, bsns_year: year, reprt_code: attempt.code, fs_div: fs },
+        DartFinancialResponseSchema,
+      );
+      if (response !== null && (response.list?.length ?? 0) > 0) {
+        rows = response.list ?? [];
+        consolidation = fs;
+        break;
+      }
+    }
+    if (rows === null) continue;
+
+    const { current, priorYear } = extractCumulative(rows);
+    const priorAnnual = await loadAnnualValues(deps.db, company.id, year - 1);
+
+    const periodEnd = quarterEndFor(year, company.fiscalYearEndMonth, attempt.through);
+    const aligned = alignPeriod(periodEnd, 'FY');
+    const points: FinancialDataPoint[] = [];
+
+    for (const metricId of current.keys()) {
+      const value = ttmFromCumulative(metricId, priorAnnual.get(metricId) ?? null, {
+        throughQuarter: attempt.through,
+        current: current.get(metricId) ?? null,
+        priorYear: priorYear.get(metricId) ?? null,
+      });
+      if (value === null) continue;
+
+      points.push({
+        companyId: company.id,
+        metricId,
+        // 연간 축에 얹히지만 확정 연간이 아니다. sourceTag 로 구분한다.
+        periodType: 'FY',
+        periodStart: null,
+        periodEnd,
+        fiscalYear: year,
+        fiscalQuarter: attempt.through,
+        alignedYear: aligned.alignedYear,
+        alignedQuarter: null,
+        value,
+        currency: 'KRW',
+        consolidation,
+        source: 'DART',
+        sourceTag: `TTM(${attempt.through}분기까지)`,
+        filedAt: null,
+      });
+    }
+
+    if (points.length === 0) continue;
+    await storeFacts(deps.db, points);
+    return { label: quarterLabel(attempt.through) };
+  }
+
+  return { label: null };
+}
+
+const QUARTER_LABEL = { 1: '1분기', 2: '상반기', 3: '3분기' } as const;
+
+function quarterLabel(through: 1 | 2 | 3): string {
+  return QUARTER_LABEL[through];
+}
+
+/** 이미 만들어 둔 TTM 이 있으면 어느 분기까지 반영됐는지 돌려준다 */
+async function db_hasInterimLabel(db: Db, companyId: string, year: number): Promise<string | null> {
+  const rows = await db
+    .select({ tag: financialFacts.sourceTag })
+    .from(financialFacts)
+    .where(
+      and(
+        eq(financialFacts.companyId, companyId),
+        eq(financialFacts.fiscalYear, year),
+        sql`${financialFacts.sourceTag} LIKE 'TTM(%'`,
+      ),
+    )
+    .limit(1);
+
+  const tag = rows[0]?.tag;
+  if (tag === undefined) return null;
+  const match = /TTM\((\d)분기까지\)/.exec(tag);
+  const q = match?.[1];
+  return q === undefined ? '최근 분기' : quarterLabel(Number(q) as 1 | 2 | 3);
+}
+
+/** 직전 연간 확정치. TTM 의 기준선이 된다 */
+async function loadAnnualValues(
+  db: Db,
+  companyId: string,
+  year: number,
+): Promise<Map<BaseMetricId, number | null>> {
+  const rows = await db
+    .select({ metricId: financialFacts.metricId, value: financialFacts.value })
+    .from(financialFacts)
+    .where(
+      and(
+        eq(financialFacts.companyId, companyId),
+        eq(financialFacts.fiscalYear, year),
+        eq(financialFacts.source, 'DART'),
+        // 작년 TTM 을 기준선으로 삼으면 오차가 누적된다. 확정 연간만 쓴다.
+        sql`${financialFacts.sourceTag} NOT LIKE 'TTM(%'`,
+      ),
+    );
+
+  const out = new Map<BaseMetricId, number | null>();
+  for (const row of rows) {
+    out.set(row.metricId as BaseMetricId, row.value === null ? null : Number(row.value));
+  }
+  return out;
+}
+
+/** 분기말 날짜. 결산월 기준으로 3·6·9개월 뒤 */
+function quarterEndFor(fiscalYear: number, accountingMonth: number, through: 1 | 2 | 3): string {
+  const startMonth = (accountingMonth % 12) + 1;
+  const endMonth = ((startMonth - 1 + through * 3 - 1) % 12) + 1;
+  const endYear = startMonth + through * 3 - 1 > 12 ? fiscalYear + 1 : fiscalYear;
+  const lastDay = new Date(Date.UTC(endYear, endMonth, 0)).getUTCDate();
+  return `${endYear}-${String(endMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 }

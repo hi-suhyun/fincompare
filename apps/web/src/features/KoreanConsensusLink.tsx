@@ -14,9 +14,29 @@ interface Props {
  */
 const HANKYUNG_SEARCH = 'https://consensus.hankyung.com/analysis/list';
 
+/**
+ * 검색 기간.
+ *
+ * 날짜를 안 주면 한경이 **최근 7일**로 잡는다. 그 주에 리포트가 안 나온
+ * 기업은 "결과가 없습니다"만 보게 되어, 링크가 고장난 것처럼 읽힌다.
+ * 2년이면 어지간한 기업은 리포트가 몇 건씩 잡힌다.
+ */
+const SEARCH_YEARS = 2;
+
+/** 종목 리포트만. 산업·시장 리포트가 섞이면 그 기업 이야기가 묻힌다 */
+const REPORT_TYPE_COMPANY = 'CO';
+
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
 export function KoreanConsensusLink({ companies }: Props): React.ReactElement | null {
   const korean = companies.filter((c) => c.country === 'KR');
   if (korean.length === 0) return null;
+
+  const today = new Date();
+  const from = new Date(today);
+  from.setFullYear(from.getFullYear() - SEARCH_YEARS);
 
   return (
     <section className="rounded-xl border border-[var(--line)] bg-white px-4 py-3">
@@ -28,7 +48,17 @@ export function KoreanConsensusLink({ companies }: Props): React.ReactElement | 
       <ul className="mt-2.5 flex flex-wrap gap-2">
         {korean.map((company) => {
           const name = company.nameKo ?? company.id;
-          const query = new URLSearchParams({ search_text: name });
+          /*
+           * search_text 가 실제로 필터링하는 항목이다.
+           * search_value 도 폼에 있지만 걸어도 안 먹고, 둘을 같이 넘기면
+           * 오히려 결과가 비어 버린다 — 하나만 쓴다.
+           */
+          const query = new URLSearchParams({
+            search_text: name,
+            sdate: isoDate(from),
+            edate: isoDate(today),
+            report_type: REPORT_TYPE_COMPANY,
+          });
           return (
             <li key={company.id}>
               <a

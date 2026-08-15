@@ -225,3 +225,38 @@ export function extractShares(rows: readonly DartStockRow[]): ShareBreakdown {
 export function extractCommonShares(rows: readonly DartStockRow[]): ShareCounts {
   return extractRow(rows, '보통주');
 }
+
+/**
+ * 분기·반기 보고서에서 누적 실적을 뽑는다.
+ *
+ * 연간 변환(convertFinancialRows)과 달리 지표별 값 한 벌만 돌려준다 —
+ * 이 값들은 그대로 차트에 올라가는 게 아니라 TTM 계산의 재료다.
+ *
+ * 한 응답에 당기 누적과 전기 같은 기간 누적이 함께 들어 있어서,
+ * TTM 을 만드는 데 기업당 1회 호출이면 끝난다.
+ */
+export function extractCumulative(rows: readonly DartFinancialRow[]): {
+  current: Map<BaseMetricId, number | null>;
+  priorYear: Map<BaseMetricId, number | null>;
+} {
+  const read = (pick: (row: DartFinancialRow) => string | undefined) => {
+    const facts: RawFact[] = rows.map((row) => ({
+      tag: row.account_id,
+      name: row.account_nm,
+      statement: row.sj_div,
+      value: safeAmount(pick(row)),
+    }));
+
+    const out = new Map<BaseMetricId, number | null>();
+    for (const metricId of MAPPED_METRICS) {
+      out.set(metricId, resolveMetric(KIFRS_ACCOUNT_MAP, metricId, facts).value);
+    }
+    return out;
+  };
+
+  return {
+    // 재무상태표 항목에는 누적이 없다. 그때는 당기(=분기말 잔액)로 떨어진다.
+    current: read((row) => row.thstrm_add_amount ?? row.thstrm_amount),
+    priorYear: read((row) => row.frmtrm_add_amount ?? row.frmtrm_amount),
+  };
+}

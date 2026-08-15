@@ -24,7 +24,12 @@ import type { DartClient } from '../adapters/dart/client.js';
 import type { SecClient } from '../adapters/sec/client.js';
 import { FxTable, type FxClient } from '../adapters/fx/ecb.js';
 import { convertValue, fiscalPeriodBounds } from './currency.js';
-import { ensureAnnualFinancials, loadCompanies, loadFacts } from './financials.js';
+import {
+  ensureAnnualFinancials,
+  ensureInterimTtm,
+  loadCompanies,
+  loadFacts,
+} from './financials.js';
 import { ensureClosePrices, isSplitAdjustedSource, type PriceDeps } from './prices.js';
 import { ensureConsensus, type CompanyConsensus, type ConsensusWarning } from './consensus.js';
 import type { ConsensusAdapter } from '../adapters/consensus/types.js';
@@ -174,6 +179,27 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
         code: w.code,
         ...(w.detail === undefined ? {} : { detail: w.detail }),
       });
+    }
+  }
+
+  /*
+   * 진행 중인 회계연도의 최근 12개월(TTM).
+   *
+   * 요청 구간이 올해까지 걸쳐 있으면, 연간 확정치가 아직 없는 해를 TTM 으로
+   * 채운다. 이게 없으면 2026년 8월에 삼성전자를 봐도 2025년까지만 나온다.
+   */
+  const currentYear = new Date().getFullYear();
+  /** 기업 ID -> 어느 분기까지 반영된 TTM 인지 */
+  const interimYears = new Map<string, string>();
+
+  if (request.toYear >= currentYear) {
+    const results = await Promise.allSettled(
+      companies.map((company) => ensureInterimTtm(deps, company, currentYear)),
+    );
+    for (const [index, result] of results.entries()) {
+      const company = companies[index];
+      if (company === undefined || result.status !== 'fulfilled') continue;
+      if (result.value.label !== null) interimYears.set(company.id, result.value.label);
     }
   }
 
@@ -417,6 +443,29 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
           detail: describeSplit(event, request.adjustSplits),
         });
       }
+    }
+  }
+
+  /*
+   * TTM 이 섞인 해를 알린다.
+   *
+   * 연간 축에 얹히지만 확정 연간이 아니다 — 아직 끝나지 않은 회계연도를
+   * 최근 12개월로 채운 값이다. 말하지 않으면 "2026년 영업이익 179조" 를
+   * 확정 실적으로 읽는다.
+   */
+  if (interimYears.size > 0) {
+    for (const [companyId, label] of interimYears) {
+      const company = companies.find((c) => c.id === companyId);
+      if (company === undefined) continue;
+      warnings.push({
+        companyId,
+        metricId: request.metrics[0] ?? 'revenue',
+        code: 'METRIC_NOT_TAGGED',
+        detail:
+          `${currentYear}년은 회계연도가 끝나지 않아 확정 실적이 없습니다. ` +
+          `${label} 기준 최근 12개월 합계로 표시합니다.`,
+        period: String(currentYear),
+      });
     }
   }
 
