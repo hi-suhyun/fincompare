@@ -53,7 +53,7 @@ function SetHover({ period }: { period: string | null }): null {
   const { setActivePeriod, setPoint } = useHoverSync();
   useEffect(() => {
     setActivePeriod(period);
-    setPoint(period === null ? null : { x: 100, y: 100 });
+    setPoint(period === null ? null : { x: 100, y: 100, anchor: period });
   }, [period, setActivePeriod, setPoint]);
   return null;
 }
@@ -199,5 +199,54 @@ describe('HoverTooltip — 마우스를 옮겨도 사라지지 않아야 한다'
     // 계속 떠 있으면 차트를 가린다
     expect(screen.queryByRole('dialog')).toBeNull();
     vi.useRealTimers();
+  });
+});
+
+describe('HoverTooltip — 같은 기간 안에서는 움직이지 않아야 한다', () => {
+  it('앵커가 같으면 좌표를 갱신하지 않는다', () => {
+    // 커서를 그대로 따라가면 툴팁 쪽으로 마우스를 옮길 때마다 툴팁이
+    // 같이 밀려나서 절대 닿을 수 없다. 실제로 그래서 링크를 못 눌렀다.
+    let seen: { x: number; y: number } | null = null;
+
+    function Probe(): null {
+      const { setPoint, point } = useHoverSync();
+      useEffect(() => {
+        setPoint({ x: 100, y: 50, anchor: '2020|operatingIncome' });
+        // 커서가 오른쪽으로 이동한 상황
+        setPoint({ x: 180, y: 50, anchor: '2020|operatingIncome' });
+      }, [setPoint]);
+      seen = point === null ? null : { x: point.x, y: point.y };
+      return null;
+    }
+
+    render(
+      <HoverSyncProvider>
+        <Probe />
+      </HoverSyncProvider>,
+    );
+
+    expect(seen).toEqual({ x: 100, y: 50 });
+  });
+
+  it('기간이 바뀌면 새 위치로 옮긴다', () => {
+    let seen: { x: number; y: number } | null = null;
+
+    function Probe(): null {
+      const { setPoint, point } = useHoverSync();
+      useEffect(() => {
+        setPoint({ x: 100, y: 50, anchor: '2020|operatingIncome' });
+        setPoint({ x: 260, y: 50, anchor: '2021|operatingIncome' });
+      }, [setPoint]);
+      seen = point === null ? null : { x: point.x, y: point.y };
+      return null;
+    }
+
+    render(
+      <HoverSyncProvider>
+        <Probe />
+      </HoverSyncProvider>,
+    );
+
+    expect(seen).toEqual({ x: 260, y: 50 });
   });
 });

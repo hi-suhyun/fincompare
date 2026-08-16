@@ -27,6 +27,13 @@ export interface HoverPoint {
   /** 화면 좌표 (position: fixed 기준) */
   x: number;
   y: number;
+  /**
+   * 이 위치가 어디에 붙어 있는지. "기간|차트" 형태.
+   *
+   * 같은 자리면 위치를 갱신하지 않는다 — 커서를 따라 움직이면 툴팁으로
+   * 다가갈 때마다 도망가서 링크를 영영 누를 수 없다.
+   */
+  anchor: string;
 }
 
 interface HoverSyncValue {
@@ -35,6 +42,7 @@ interface HoverSyncValue {
   /** 커서 위치. 툴팁을 띄울 자리 */
   point: HoverPoint | null;
   setActivePeriod: (period: string | null) => void;
+  /** 앵커가 바뀔 때만 실제로 옮긴다 */
   setPoint: (point: HoverPoint | null) => void;
   /** 차트를 벗어났다. 유예를 두고 지운다 */
   scheduleClear: () => void;
@@ -46,7 +54,22 @@ const HoverSyncContext = createContext<HoverSyncValue | null>(null);
 
 export function HoverSyncProvider({ children }: { children: ReactNode }): React.ReactElement {
   const [activePeriod, setActivePeriod] = useState<string | null>(null);
-  const [point, setPoint] = useState<HoverPoint | null>(null);
+  const [point, setPointRaw] = useState<HoverPoint | null>(null);
+
+  /*
+   * 앵커가 같으면 좌표를 갱신하지 않는다.
+   *
+   * 커서를 그대로 따라가면 툴팁 쪽으로 마우스를 옮길 때마다 툴팁도 같이
+   * 밀려나서 절대 닿을 수 없다. 세로 기준선에 붙여 두면 그 기간 안에서는
+   * 가만히 있어서 걸어 들어갈 수 있다.
+   */
+  const setPoint = useCallback((next: HoverPoint | null) => {
+    setPointRaw((prev) => {
+      if (next === null) return null;
+      if (prev !== null && prev.anchor === next.anchor) return prev;
+      return next;
+    });
+  }, []);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cancelClear = useCallback(() => {
@@ -60,7 +83,7 @@ export function HoverSyncProvider({ children }: { children: ReactNode }): React.
     cancelClear();
     timer.current = setTimeout(() => {
       setActivePeriod(null);
-      setPoint(null);
+      setPointRaw(null);
       timer.current = null;
     }, LEAVE_GRACE_MS);
   }, [cancelClear]);

@@ -13,6 +13,7 @@ import {
 import type { CompanyConsensus, SeriesCompany, SeriesMetric } from '../lib/api.js';
 import { formatAxisTick, unitLabel } from '../lib/format.js';
 import type { DisplayCurrency } from '../lib/format.js';
+import { useRef } from 'react';
 import { useHoverSync } from './hoverSync.js';
 
 interface Props {
@@ -59,6 +60,7 @@ export function MetricChart({
   consensus = [],
 }: Props): React.ReactElement {
   const { activePeriod, setActivePeriod, setPoint, scheduleClear } = useHoverSync();
+  const chartBox = useRef<HTMLDivElement>(null);
 
   /*
    * 추정 밴드.
@@ -135,17 +137,33 @@ export function MetricChart({
         커서 좌표는 여기서 잡는다. Recharts 의 onMouseMove 는 차트 내부 좌표만
         주는데, 툴팁은 화면 좌표로 띄워야 하기 때문이다.
       */}
-      <div
-        onMouseMove={(e) => setPoint({ x: e.clientX, y: e.clientY })}
-        onMouseLeave={scheduleClear}
-      >
+      <div ref={chartBox} onMouseLeave={scheduleClear}>
       <ResponsiveContainer width="100%" height={height}>
         <ComposedChart
           data={rows}
           margin={CHART_MARGIN}
           onMouseMove={(state) => {
             const label = state.activeLabel;
-            if (typeof label === 'string') setActivePeriod(label);
+            if (typeof label !== 'string') return;
+            setActivePeriod(label);
+
+            /*
+             * 툴팁은 커서가 아니라 **세로 기준선**에 붙인다.
+             *
+             * 커서를 따라가면 툴팁 쪽으로 마우스를 옮길 때마다 툴팁도 같이
+             * 밀려나서 링크를 영영 누를 수 없다. 기준선에 붙여 두면 그 기간
+             * 안에서는 가만히 있어서 걸어 들어갈 수 있다.
+             */
+            const box = chartBox.current?.getBoundingClientRect();
+            const coord = state.activeCoordinate;
+            if (box === undefined || coord === undefined) return;
+
+            setPoint({
+              x: box.left + coord.x,
+              y: box.top,
+              // 기간이나 차트가 바뀔 때만 옮긴다
+              anchor: `${label}|${metric.metricId}`,
+            });
           }}
         >
           <CartesianGrid stroke="#e8eaee" vertical={false} />
