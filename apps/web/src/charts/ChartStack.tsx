@@ -88,6 +88,20 @@ export function ChartStack({
   // 현재 목표주가는 시계열이 아니라 "지금 값" 이다. 있을 때만 따로 알린다.
   const priceTargets = data.consensus.filter((c) => c.priceTarget !== null);
 
+  /*
+   * 컨센서스를 켰는데 밴드가 안 보이는 경우를 설명한다.
+   *
+   * 추정치는 매출액·EPS 에만 있다. 영업이익·주가를 보고 있으면 아무 일도
+   * 일어나지 않는데, 아무 말도 없으면 "기능이 고장났나" 로 읽힌다.
+   */
+  const hasEstimates = data.consensus.some((c) => Object.keys(c.estimates).length > 0);
+  const shownMetricIds = new Set(data.series.map((m) => m.metricId));
+  const estimatedButNotShown = data.consensus
+    .flatMap((c) => Object.keys(c.estimates))
+    .filter((metricId) => !shownMetricIds.has(metricId as never));
+
+  const consensusIdle = !consensusShown && hasEstimates;
+
   const lineCount = data.series.length * data.companies.length;
   // 겹쳐 보기는 한 차트라 세로 공간을 몰아 쓸 수 있다
   const height = overlay ? 420 : chartHeight(data.series.length);
@@ -134,6 +148,33 @@ export function ChartStack({
             <p className="rounded-xl border-2 border-[#e8d5a8] bg-[#fffaf0] px-4 py-2.5 text-sm">
               선이 {lineCount}개라 겹쳐 보기로는 구분이 어렵습니다. 기업이나 지표를 줄이거나
               쌓아 보기로 돌아가세요.
+            </p>
+          )}
+
+          {consensusIdle && (
+            <p className="rounded-xl border border-[var(--line)] bg-white px-4 py-2.5 text-sm text-[var(--ink-muted)]">
+              {overlay
+                ? '겹쳐 보기에서는 추정치 밴드를 그리지 않습니다. 「한 차트에 겹쳐 보기」를 끄면 보입니다.'
+                : currency === 'KRW'
+                  ? '추정치는 달러 기준이라 원화 보기에서는 밴드를 그리지 않습니다. 「표시 통화」를 바꾸면 보입니다.'
+                  : estimatedButNotShown.length > 0
+                    ? `애널리스트 추정치는 매출액·EPS 에만 있습니다. 지금 보고 있는 지표에는 추정치가 없어 밴드가 그려지지 않았습니다 — 「매출액」이나 「EPS」를 골라 보세요.`
+                    : '이 기업의 추정치를 찾지 못했습니다.'}
+              {priceTargets.length > 0 && (
+                <>
+                  {' '}
+                  현재 목표주가 컨센서스:{' '}
+                  {priceTargets
+                    .map((c) => {
+                      const company = data.companies.find((x) => x.id === c.companyId);
+                      const t = c.priceTarget;
+                      const name = company?.nameKo ?? c.companyId;
+                      return `${name} ${t?.low ?? '?'}~${t?.high ?? '?'} (평균 ${t?.avg ?? '?'})`;
+                    })
+                    .join(' · ')}
+                  .
+                </>
+              )}
             </p>
           )}
 

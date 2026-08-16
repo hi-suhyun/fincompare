@@ -159,8 +159,22 @@ export async function ensureConsensus(
   if (stored.length > 0) {
     const estimates = foldByMetric(stored, years);
     if (Object.keys(estimates).length === 0) return null;
-    // 목표주가는 "지금 값"이라 저장하지 않는다. 캐시된 조회에서는 생략한다.
-    return { companyId: company.id, estimates, priceTarget: null, source: deps.consensus.source };
+
+    /*
+     * 목표주가는 "지금 값"이라 DB 에 담지 않는다. 그렇다고 캐시된 조회에서
+     * 통째로 빼면, 추정치가 한 번 저장된 뒤로는 목표주가가 영영 안 나온다 —
+     * 실제로 처음 한 번만 보이고 사라졌다.
+     *
+     * 제공처 호출은 HTTP 캐시(3일)가 막아 주므로 매번 불러도 부담이 없다.
+     */
+    let priceTarget: PriceTargetConsensus | null = null;
+    try {
+      priceTarget = (await deps.consensus.fetchConsensus(ticker)).priceTarget;
+    } catch {
+      // 목표주가는 부가 정보다. 못 받아도 추정치 밴드는 그대로 쓴다.
+    }
+
+    return { companyId: company.id, estimates, priceTarget, source: deps.consensus.source };
   }
 
   try {
