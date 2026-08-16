@@ -7,7 +7,11 @@ dist/
 apps/api/.env
 
 # SQLite 개발 DB. 'data/' 로 두면 apps/api/src/data(소스)까지 무시된다.
-apps/api/data/
+#
+# 디렉터리째 무시하면 그 안의 파일을 되살릴 수 없어서 '/*' 로 둔다 —
+# 예시 파일 하나는 올려야 새로 받는 사람이 형식을 알 수 있다.
+apps/api/data/*
+!apps/api/data/kr-consensus.example.json
 
 .vercel/
 

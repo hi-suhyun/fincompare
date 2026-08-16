@@ -13,6 +13,7 @@ import type { PriceAdapter } from '../adapters/price/types.js';
 import type { ConsensusAdapter } from '../adapters/consensus/types.js';
 import type { Db } from '../db/client.js';
 import { buildSeries } from '../services/series.js';
+import type { KrConsensusEntry } from '../services/krConsensusFile.js';
 
 const CURRENT_YEAR = new Date().getUTCFullYear();
 /**
@@ -90,6 +91,8 @@ export interface SeriesRouterDeps {
   usPrice: PriceAdapter | null;
   /** 목표주가 제공처. 키가 없으면 null 이고 기능이 꺼진다 */
   consensusAdapter: ConsensusAdapter | null;
+  /** 국내 컨센서스 직접 조사 기록. 없으면 빈 배열 */
+  krResearch: readonly KrConsensusEntry[];
 }
 
 export function createSeriesRouter(deps: SeriesRouterDeps): Router {

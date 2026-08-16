@@ -70,6 +70,10 @@ export function App(): React.ReactElement {
   });
   const usPricesEnabled = health?.capabilities?.usPrices ?? false;
   const consensusEnabled = health?.capabilities?.consensus ?? false;
+  const krResearchIds = useMemo(
+    () => new Set(health?.capabilities?.krResearch ?? []),
+    [health],
+  );
 
   const names = useMemo(() => {
     const map = new Map(pickedNames);
@@ -88,6 +92,11 @@ export function App(): React.ReactElement {
   const isMixedMarket = countries.size > 1;
   const hasUsCompanies = countries.has('US');
   const hasKrCompanies = countries.has('KR');
+  // 고른 국내 기업 중 직접 조사 기록이 있는 곳. 있으면 컨센서스 토글이 열린다
+  const hasKrResearch = useMemo(
+    () => (data?.companies ?? []).some((c) => krResearchIds.has(c.id)),
+    [data, krResearchIds],
+  );
   // 추정치가 있는 지표에만 밴드가 얹힌다
   const hasEstimatedMetric = state.metrics.some((m) => isEstimatedMetric(m));
   // 액면분할 조정은 주당 지표에만 영향을 준다. 매출액만 보고 있으면 띄울 이유가 없다.
@@ -193,6 +202,7 @@ export function App(): React.ReactElement {
                   hasKrCompanies={hasKrCompanies}
                   enabled={consensusEnabled}
                   hasEstimatedMetric={hasEstimatedMetric}
+                  hasKrResearch={hasKrResearch}
                 />
                 <label className="flex items-center gap-2.5">
                   <input

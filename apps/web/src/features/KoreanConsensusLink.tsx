@@ -28,9 +28,10 @@ export function KoreanConsensusLink({ companies, periods }: Props): React.ReactE
     <section className="rounded-xl border border-[var(--line)] bg-white px-4 py-3">
       <h3 className="font-semibold">국내 기업 애널리스트 리포트</h3>
       <p className="mt-1 text-sm text-[var(--ink-muted)]">
-        증권사 리포트의 목표주가·추정치는 저작물이라 이 화면으로 가져오지 않습니다.
-        차트 위 값 표에서 <strong className="font-medium">그 시점 리포트</strong>로 바로 갈 수
-        있고, 아래는 보고 있는 기간 전체입니다.
+        증권사 리포트의 목표주가·추정치는 저작물이라{' '}
+        <strong className="font-medium">자동으로 받아와 보관하지 않습니다.</strong> 차트 위 값
+        표에서 <strong className="font-medium">그 시점 리포트</strong>로 바로 갈 수 있고, 아래는
+        보고 있는 기간 전체입니다.
       </p>
 
       <ul className="mt-2.5 flex flex-wrap gap-2">

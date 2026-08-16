@@ -95,6 +95,64 @@ describe('ensureConsensus — 국내 기업', () => {
     expect(calls()).toBe(0);
     handle.close();
   });
+
+  it('직접 조사 기록이 있으면 그것을 쓴다', async () => {
+    const handle = await makeDb();
+    const { adapter, calls } = makeAdapter({ estimates: [], priceTarget: null });
+    const warnings: ConsensusWarning[] = [];
+
+    const result = await ensureConsensus(
+      {
+        db: handle.db,
+        consensus: adapter,
+        krResearch: [
+          {
+            companyId: 'KR:005930',
+            asOf: '2026-08-15',
+            priceTarget: { high: 670000, avg: 491875, low: 370000 },
+            estimates: { eps: [{ year: 2024, high: 9800, avg: 8400, low: 6900, count: 21 }] },
+            sources: ['https://markets.hankyung.com/stock/005930/consensus'],
+          },
+        ],
+      },
+      SAMSUNG,
+      YEARS,
+      warnings,
+    );
+
+    expect(result?.source).toBe('직접 조사');
+    expect(result?.priceTarget?.avg).toBe(491875);
+    // 기록이 있어도 제공처는 부르지 않는다 — 국내는 받아오지 않기로 한 것이다
+    expect(calls()).toBe(0);
+    handle.close();
+  });
+
+  it('다른 기업의 기록을 끌어다 쓰지 않는다', async () => {
+    const handle = await makeDb();
+    const { adapter } = makeAdapter({ estimates: [], priceTarget: null });
+    const warnings: ConsensusWarning[] = [];
+
+    const result = await ensureConsensus(
+      {
+        db: handle.db,
+        consensus: adapter,
+        krResearch: [
+          {
+            companyId: 'KR:000660',
+            asOf: '2026-08-15',
+            estimates: { eps: [{ year: 2024, high: 1, avg: 1, low: 1, count: 1 }] },
+            sources: ['https://example.com/a'],
+          },
+        ],
+      },
+      SAMSUNG,
+      YEARS,
+      warnings,
+    );
+
+    expect(result).toBeNull();
+    handle.close();
+  });
 });
 
 describe('ensureConsensus — 회계연도 정렬', () => {

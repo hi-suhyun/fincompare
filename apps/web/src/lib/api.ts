@@ -161,7 +161,18 @@ export interface CompanyConsensus {
   /** 지표별 추정 밴드 (eps · revenue). 실제값과 같은 연도 축에 맞춰져 있다 */
   estimates: Record<string, ConsensusPoint[]>;
   priceTarget: PriceTargetConsensus | null;
+  /** 제공처 이름. 국내 직접 조사 기록은 '직접 조사' 다 */
   source: string;
+  /**
+   * 추정치가 적힌 통화. 실제값만 환산되고 추정치는 그대로라, 이게 「표시 통화」와
+   * 어긋나면 밴드가 엉뚱한 자리에 겹친다 — 그럴 때는 그리지 않는다.
+   */
+  currency: 'KRW' | 'USD';
+  /** 조사 시점 (YYYY-MM-DD). 직접 조사 기록에만 있다 */
+  asOf?: string;
+  /** 그 숫자를 어디서 봤는지 */
+  sources?: readonly string[];
+  note?: string;
 }
 
 export interface SeriesResponse {
@@ -207,7 +218,13 @@ export interface HealthResponse {
   companies: number;
   missingKeys: string[];
   /** 이 인스턴스가 실제로 주가를 붙일 수 있는지 (셀프호스트는 키에 따라 다르다) */
-  capabilities?: { krPrices: boolean; usPrices: boolean; consensus?: boolean };
+  capabilities?: {
+    krPrices: boolean;
+    usPrices: boolean;
+    consensus?: boolean;
+    /** 직접 조사 기록이 있는 국내 기업 ID. 그 기업은 컨센서스 토글이 열린다 */
+    krResearch?: string[];
+  };
 }
 
 export function fetchHealth(): Promise<HealthResponse> {

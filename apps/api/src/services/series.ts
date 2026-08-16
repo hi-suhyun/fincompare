@@ -34,6 +34,7 @@ import {
 import { ensureClosePrices, isSplitAdjustedSource, type PriceDeps } from './prices.js';
 import { ensureConsensus, type CompanyConsensus, type ConsensusWarning } from './consensus.js';
 import type { ConsensusAdapter } from '../adapters/consensus/types.js';
+import type { KrConsensusEntry } from './krConsensusFile.js';
 
 /**
  * 차트 하나를 그리는 데 필요한 모든 것을 한 번에 준다.
@@ -125,6 +126,8 @@ export interface SeriesDeps extends PriceDeps {
   fx: FxClient;
   /** 목표주가 제공처. 키가 없으면 null */
   consensusAdapter?: ConsensusAdapter | null;
+  /** 국내 컨센서스 직접 조사 기록. 서버가 뜰 때 파일에서 한 번 읽는다 */
+  krResearch?: readonly KrConsensusEntry[];
 }
 
 export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Promise<SeriesResponse> {
@@ -289,7 +292,11 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
     const results = await Promise.all(
       companies.map((company) =>
         ensureConsensus(
-          { db: deps.db, consensus: deps.consensusAdapter ?? null },
+          {
+            db: deps.db,
+            consensus: deps.consensusAdapter ?? null,
+            ...(deps.krResearch === undefined ? {} : { krResearch: deps.krResearch }),
+          },
           company,
           years,
           consensusWarnings,

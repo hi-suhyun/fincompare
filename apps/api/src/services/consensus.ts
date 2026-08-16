@@ -11,6 +11,8 @@ import type { ConsensusAdapter, EstimateRow } from '../adapters/consensus/types.
 import { SourceError } from '../core/errors.js';
 import type { Db } from '../db/client.js';
 import { analystEstimates } from '../db/schema.js';
+// 타입은 저쪽에서 이쪽을 참조하지만 import type 이라 지워진다 — 런타임 순환은 없다
+import { toCompanyConsensus, type KrConsensusEntry } from './krConsensusFile.js';
 
 /**
  * 애널리스트 컨센서스 수집·집계.
@@ -24,6 +26,13 @@ export interface ConsensusDeps {
   db: Db;
   /** 키가 없으면 null. 그때는 기능 자체가 꺼진다 */
   consensus: ConsensusAdapter | null;
+  /**
+   * 국내 컨센서스 — 사용자가 직접 조사해 적어 둔 기록.
+   *
+   * 제공처가 없어서가 아니라 **쓰지 않기로 한 것**이다. 자동 수집 대신
+   * 로컬 파일을 읽는다. 자세한 이유는 krConsensusFile.ts 에 적어 두었다.
+   */
+  krResearch?: readonly KrConsensusEntry[];
 }
 
 export interface ConsensusWarning {
@@ -43,6 +52,25 @@ export interface CompanyConsensus {
    */
   priceTarget: PriceTargetConsensus | null;
   source: string;
+  /**
+   * 추정치가 적힌 통화.
+   *
+   * 실제값은 「표시 통화」로 환산되지만 추정치는 받은 그대로다. 둘이 어긋나면
+   * 밴드와 실선이 엉뚱한 자리에 겹치므로, 화면에서 이 값을 보고 그릴지 정한다.
+   * 미국은 FMP 가 달러로 주고, 국내 조사 기록은 원화다.
+   */
+  currency: 'KRW' | 'USD';
+  /**
+   * 조사 시점 (YYYY-MM-DD). 직접 조사 기록에만 있다.
+   *
+   * 제공처에서 받은 값은 늘 최신이라 시점을 밝힐 필요가 없지만, 손으로 적은
+   * 기록은 언제 적었는지가 값 자체만큼 중요하다 — 반년 지난 목표주가는
+   * 지금 목표주가가 아니다.
+   */
+  asOf?: string;
+  /** 그 숫자를 어디서 봤는지. 화면에서 눌러 확인할 수 있어야 한다 */
+  sources?: readonly string[];
+  note?: string;
 }
 
 async function loadStored(db: Db, companyId: string): Promise<EstimateRow[]> {
@@ -137,8 +165,9 @@ function foldByMetric(
 /**
  * 한 기업의 컨센서스를 준비한다.
  *
- * 국내 기업은 아예 시도하지 않는다. 컨센서스를 크롤링·저장하지 않는 것이
- * 이 프로젝트의 결정이고, 화면에서는 링크아웃만 제공한다.
+ * 국내 기업은 **자동으로 받아오지 않는다.** 증권사 리포트와 그 집계는
+ * 저작물이고 제공처 약관이 기계적 수집을 막는다. 대신 사용자가 직접
+ * 조사해 로컬 파일에 적어 둔 것이 있으면 그것을 쓴다.
  */
 export async function ensureConsensus(
   deps: ConsensusDeps,
@@ -146,7 +175,16 @@ export async function ensureConsensus(
   years: readonly number[],
   warnings: ConsensusWarning[],
 ): Promise<CompanyConsensus | null> {
-  if (company.country !== 'US') return null;
+  if (company.country !== 'US') {
+    const entry = deps.krResearch?.find((e) => e.companyId === company.id);
+    if (entry === undefined) return null;
+
+    const research = toCompanyConsensus(entry, years);
+    // 목표주가도 추정치도 없으면 실을 것이 없다 — 출처만 적힌 빈 항목
+    if (Object.keys(research.estimates).length === 0 && research.priceTarget === null) return null;
+    return research;
+  }
+
   if (deps.consensus === null) return null;
 
   const ticker = company.ticker;
@@ -174,7 +212,13 @@ export async function ensureConsensus(
       // 목표주가는 부가 정보다. 못 받아도 추정치 밴드는 그대로 쓴다.
     }
 
-    return { companyId: company.id, estimates, priceTarget, source: deps.consensus.source };
+    return {
+      companyId: company.id,
+      estimates,
+      priceTarget,
+      source: deps.consensus.source,
+      currency: 'USD',
+    };
   }
 
   try {
@@ -196,6 +240,7 @@ export async function ensureConsensus(
       estimates: foldByMetric(result.estimates, years),
       priceTarget: result.priceTarget,
       source: deps.consensus.source,
+      currency: 'USD',
     };
   } catch (error) {
     // 컨센서스는 부가 정보다. 못 받았다고 재무지표 조회 전체를 실패시키지 않는다.

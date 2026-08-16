@@ -2,7 +2,7 @@ import { OVERLAY_READABLE_LINES, chartHeight } from '@fincompare/shared';
 import { useMemo, useRef } from 'react';
 import { ExportButtons } from '../features/export/ExportButtons.js';
 import type { SeriesResponse } from '../lib/api.js';
-import { resolveCurrency } from '../lib/format.js';
+import { formatByUnit, resolveCurrency } from '../lib/format.js';
 import { HoverSyncProvider } from './hoverSync.js';
 import { MetricChart } from './MetricChart.js';
 import { OverlayChart } from './OverlayChart.js';
@@ -77,16 +77,38 @@ export function ChartStack({
   // 20배쯤부터 작은 쪽 선이 축 바닥에 붙어 기울기를 읽을 수 없다
   const spreadTooWide = spread >= 20;
 
+  /*
+   * 표시 통화와 맞는 컨센서스만 그린다.
+   *
+   * 실제값은 「표시 통화」로 환산되지만 추정치는 받은 그대로다. 달러 추정치를
+   * 원화 차트에 얹으면 밴드가 실선에서 1,300배 떨어진 자리에 그려진다.
+   * 국내 조사 기록은 원화라서 반대로 원화 보기에서만 맞는다.
+   */
+  // 'mixed' 는 기업마다 자기 통화로 그린다는 뜻이라 어느 쪽 추정치든 제자리에 얹힌다
+  const drawableConsensus = data.consensus.filter(
+    (c) => currency === 'mixed' || currency === c.currency,
+  );
+
   // 밴드가 실제로 그려지는 조건. 안내 문구를 그때만 띄운다.
   const consensusShown =
     !overlay &&
     data.series.some((metric) =>
-      data.consensus.some((c) => c.estimates[metric.metricId] !== undefined),
-    ) &&
-    !(currency === 'KRW');
+      drawableConsensus.some((c) => c.estimates[metric.metricId] !== undefined),
+    );
 
-  // 현재 목표주가는 시계열이 아니라 "지금 값" 이다. 있을 때만 따로 알린다.
-  const priceTargets = data.consensus.filter((c) => c.priceTarget !== null);
+  // 직접 조사한 기록은 제공처 데이터와 구분해서 보여줘야 한다 — 출처와 조사 시점까지
+  const researched = data.consensus.filter((c) => c.sources !== undefined && c.sources.length > 0);
+  const researchedIds = new Set(researched.map((c) => c.companyId));
+
+  /*
+   * 현재 목표주가는 시계열이 아니라 "지금 값" 이다. 있을 때만 따로 알린다.
+   *
+   * 직접 조사한 것은 제 상자에서 출처와 함께 보여주므로 여기서 뺀다 —
+   * 양쪽에 다 실으면 같은 숫자가 두 번 나온다.
+   */
+  const priceTargets = data.consensus.filter(
+    (c) => c.priceTarget !== null && !researchedIds.has(c.companyId),
+  );
 
   /*
    * 컨센서스를 켰는데 밴드가 안 보이는 경우를 설명한다.
@@ -99,6 +121,10 @@ export function ChartStack({
   const estimatedButNotShown = data.consensus
     .flatMap((c) => Object.keys(c.estimates))
     .filter((metricId) => !shownMetricIds.has(metricId as never));
+
+  // 추정치는 있는데 표시 통화가 달라서 못 그리는 경우. 어느 쪽으로 바꿔야 하는지 알려준다
+  const blockedCurrency =
+    hasEstimates && drawableConsensus.length === 0 ? (currency === 'KRW' ? 'USD' : 'KRW') : null;
 
   const consensusIdle = !consensusShown && hasEstimates;
 
@@ -155,8 +181,8 @@ export function ChartStack({
             <p className="rounded-xl border border-[var(--line)] bg-white px-4 py-2.5 text-sm text-[var(--ink-muted)]">
               {overlay
                 ? '겹쳐 보기에서는 추정치 밴드를 그리지 않습니다. 「한 차트에 겹쳐 보기」를 끄면 보입니다.'
-                : currency === 'KRW'
-                  ? '추정치는 달러 기준이라 원화 보기에서는 밴드를 그리지 않습니다. 「표시 통화」를 바꾸면 보입니다.'
+                : blockedCurrency !== null
+                  ? `추정치는 ${blockedCurrency === 'USD' ? '달러' : '원화'} 기준이라 지금 표시 통화에서는 밴드를 그리지 않습니다. 「표시 통화」를 ${blockedCurrency === 'USD' ? '달러' : '원화'}나 「원래 통화」로 바꾸면 보입니다.`
                   : estimatedButNotShown.length > 0
                     ? `애널리스트 추정치는 매출액·EPS 에만 있습니다. 지금 보고 있는 지표에는 추정치가 없어 밴드가 그려지지 않았습니다 — 「매출액」이나 「EPS」를 골라 보세요.`
                     : '이 기업의 추정치를 찾지 못했습니다.'}
@@ -203,6 +229,56 @@ export function ChartStack({
             </p>
           )}
 
+          {/*
+            직접 조사 기록은 제공처 데이터와 섞이면 안 된다.
+            누가 언제 어디서 본 숫자인지 밝혀야 그 값을 믿을지 판단할 수 있다.
+          */}
+          {researched.length > 0 && (
+            <div className="rounded-xl border border-[#c8a2c8] bg-[#faf5fb] px-4 py-2.5 text-sm">
+              {researched.map((c) => {
+                const company = data.companies.find((x) => x.id === c.companyId);
+                const name = company?.nameKo ?? c.companyId;
+                return (
+                  <p key={c.companyId} className="[&+&]:mt-1.5">
+                    <strong className="font-medium">{name}</strong>의 컨센서스는 제공처에서 받은
+                    값이 아니라 <strong className="font-medium">직접 조사해 적어 둔 기록</strong>
+                    입니다
+                    {c.asOf !== undefined && <> (조사일 {c.asOf})</>}. 적은 뒤에 바뀌었을 수
+                    있습니다.
+                    {c.priceTarget !== null && (
+                      <>
+                        {' '}
+                        목표주가{' '}
+                        <span className="tabular">
+                          {formatByUnit(c.priceTarget.low, '통화', 'KRW')}~
+                          {formatByUnit(c.priceTarget.high, '통화', 'KRW')}
+                        </span>
+                        , 평균{' '}
+                        <strong className="font-medium tabular">
+                          {formatByUnit(c.priceTarget.avg, '통화', 'KRW')}
+                        </strong>
+                        .
+                      </>
+                    )}
+                    {c.note !== undefined && <> {c.note}</>}{' '}
+                    {c.sources?.map((url, i) => (
+                      <a
+                        key={url}
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-[#0072B2] underline underline-offset-2"
+                      >
+                        출처{c.sources !== undefined && c.sources.length > 1 ? ` ${i + 1}` : ''} ↗
+                        {i < (c.sources?.length ?? 0) - 1 ? ' ' : ''}
+                      </a>
+                    ))}
+                  </p>
+                );
+              })}
+            </div>
+          )}
+
           {overlay ? (
             <OverlayChart data={data} height={height} logScale={logScale} />
           ) : (
@@ -217,7 +293,7 @@ export function ChartStack({
                   showXAxisLabels={index === data.series.length - 1}
                   logScale={logScale}
                   currency={currency}
-                  consensus={data.consensus}
+                  consensus={drawableConsensus}
                 />
               ))}
             </div>

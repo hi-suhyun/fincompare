@@ -20,6 +20,7 @@ import { CacheLayer } from './core/cache.js';
 import { RequestQueue } from './core/queue.js';
 import { DEFAULT_LIMITS, RateLimiter } from './core/rateLimiter.js';
 import { SqliteCacheStore } from './db/cacheStore.js';
+import { loadKrConsensusFile } from './services/krConsensusFile.js';
 
 /**
  * 앱 조립.
@@ -143,6 +144,17 @@ export async function createApp(options: CreateAppOptions = {}): Promise<AppBund
   const usPrice = buildUsPriceAdapter();
   const consensusAdapter = buildConsensusAdapter();
 
+  /*
+   * 국내 컨센서스 직접 조사 기록.
+   *
+   * 서버가 뜰 때 한 번만 읽는다. 조회마다 디스크를 때릴 이유가 없고,
+   * 파일을 고쳤으면 어차피 서버를 다시 띄우게 된다.
+   */
+  const krResearch = loadKrConsensusFile(config.DATABASE_URL);
+  if (krResearch.length > 0) {
+    console.log(`국내 컨센서스 조사 기록 ${krResearch.length}건을 읽었습니다`);
+  }
+
   const app = express();
   app.use(express.json());
 
@@ -190,8 +202,15 @@ export async function createApp(options: CreateAppOptions = {}): Promise<AppBund
           capabilities: {
             krPrices: krPrice !== null,
             usPrices: usPrice !== null,
-            /** 미국 기업 목표주가. 국내는 링크아웃만이라 여기에 들어오지 않는다 */
+            /** 미국 기업 목표주가. 국내는 제공처를 쓰지 않아 여기에 들어오지 않는다 */
             consensus: consensusAdapter !== null,
+            /**
+             * 직접 조사 기록이 있는 국내 기업.
+             *
+             * 프론트가 이걸 알아야 그 기업을 골랐을 때 토글을 열어 준다 —
+             * "국내는 안 됩니다" 로 막아 두면 적어 둔 기록을 볼 수 없다.
+             */
+            krResearch: krResearch.map((e) => e.companyId),
           },
         });
       })
@@ -201,7 +220,16 @@ export async function createApp(options: CreateAppOptions = {}): Promise<AppBund
   app.use('/api/companies', createCompaniesRouter(handle.db));
   app.use(
     '/api/series',
-    createSeriesRouter({ db: handle.db, dart, sec, fx, krPrice, usPrice, consensusAdapter }),
+    createSeriesRouter({
+      db: handle.db,
+      dart,
+      sec,
+      fx,
+      krPrice,
+      usPrice,
+      consensusAdapter,
+      krResearch,
+    }),
   );
 
   const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {

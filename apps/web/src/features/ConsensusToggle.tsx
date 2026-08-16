@@ -9,6 +9,8 @@ interface Props {
   enabled: boolean;
   /** 추정치가 있는 지표(EPS·매출액)를 보고 있는지 */
   hasEstimatedMetric: boolean;
+  /** 고른 국내 기업 중 직접 조사 기록이 있는 곳이 하나라도 있는지 */
+  hasKrResearch: boolean;
 }
 
 /**
@@ -24,14 +26,25 @@ export function ConsensusToggle({
   hasKrCompanies,
   enabled,
   hasEstimatedMetric,
+  hasKrResearch,
 }: Props): React.ReactElement | null {
-  // 미국 기업도 없고 국내만 골랐으면 국내 안내만 보여준다
   if (!hasUsCompanies && !hasKrCompanies) return null;
 
-  const disabled = !enabled || !hasUsCompanies || !hasEstimatedMetric;
+  /*
+   * 켤 수 있는 경로가 둘이다.
+   *
+   * 미국 기업은 제공처(FMP) 키가 있으면 되고, 국내 기업은 직접 조사해 적어 둔
+   * 기록이 있으면 된다. 국내 기록은 키와 무관하므로 enabled 를 보지 않는다.
+   */
+  const usReady = hasUsCompanies && enabled;
+  const disabled = (!usReady && !hasKrResearch) || !hasEstimatedMetric;
 
   const reason = ((): string | null => {
-    if (!enabled) {
+    if (hasKrResearch && !hasEstimatedMetric) {
+      return '「매출액」이나 「EPS」를 선택하면 밴드를 얹을 수 있습니다.';
+    }
+    if (hasKrResearch) return null;
+    if (!enabled && hasUsCompanies) {
       return '이 화면에서는 컨센서스를 제공하지 않습니다. 직접 설치해 본인 API 키를 넣으면 켜집니다.';
     }
     if (!hasUsCompanies) return null; // 국내 안내가 따로 나간다
@@ -66,8 +79,9 @@ export function ConsensusToggle({
 
       {hasKrCompanies && (
         <p className="max-w-xs pl-7 text-sm text-[var(--ink-muted)]">
-          국내 기업은 컨센서스를 제공하지 않습니다 — 증권사 리포트는 저작물이라 가져와
-          보관하지 않습니다. 아래 링크에서 원문을 보실 수 있습니다.
+          {hasKrResearch
+            ? '국내 컨센서스는 제공처에서 받아오지 않고, 직접 조사해 적어 둔 기록을 씁니다. 조사일과 출처가 차트 위에 함께 표시됩니다.'
+            : '국내 기업은 컨센서스를 자동으로 받아오지 않습니다 — 증권사 리포트는 저작물이라 가져와 보관하지 않습니다. 아래 링크에서 원문을 보시거나, 직접 조사해 적어 두면 밴드로 그려집니다.'}
         </p>
       )}
     </div>
