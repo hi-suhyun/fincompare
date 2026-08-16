@@ -182,7 +182,7 @@ export function ChartStack({
           )}
         </div>
 
-        <KoreanConsensusLink companies={data.companies} />
+        <KoreanConsensusLink companies={data.companies} periods={data.periods} />
 
         <WarningList warnings={data.warnings} companies={data.companies} />
       </div>

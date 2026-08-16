@@ -2,6 +2,7 @@ import type { SeriesCompany, SeriesMetric } from '../lib/api.js';
 import { NO_DATA, formatByUnit } from '../lib/format.js';
 import type { DisplayCurrency } from '../lib/format.js';
 import { useHoverSync } from './hoverSync.js';
+import { periodToRange, reportSearchUrl } from '../features/reportLink.js';
 
 interface Props {
   companies: readonly SeriesCompany[];
@@ -33,6 +34,17 @@ export function ReadoutPanel({
   const period = activePeriod ?? periods[periods.length - 1] ?? null;
   const index = period === null ? -1 : periods.indexOf(period);
 
+  // "2024" 는 "2024년", "2024Q1" 은 그대로. 분기에 '년' 을 붙이면 말이 안 된다.
+  const periodLabel = period === null ? '—' : period.includes('Q') ? period : `${period}년`;
+
+  /*
+   * 그 시점의 증권사 리포트로 가는 길.
+   *
+   * 리포트 내용은 가져오지 않는다 — 저작물이다. 지금 보고 있는 시점에서
+   * "왜 여기서 꺾였지?" 가 생겼을 때 바로 원문으로 갈 수 있게만 한다.
+   */
+  const koreanCompanies = companies.filter((c) => c.country === 'KR');
+
   return (
     <div
       // readout-panel 클래스는 이미지 내보내기에서 sticky·스크롤을 풀기 위한 표식이다
@@ -43,10 +55,38 @@ export function ReadoutPanel({
       aria-atomic="true"
     >
       <div className="mb-2 flex items-baseline gap-2">
-        <span className="tabular text-xl font-bold">{period ?? '—'}년</span>
+        <span className="tabular text-xl font-bold">{periodLabel}</span>
         <span className="text-sm text-[var(--ink-muted)]">
           {activePeriod === null ? '차트에 마우스를 올리면 그 시점 값이 표시됩니다' : '전체 지표'}
         </span>
+
+        {period !== null && koreanCompanies.length > 0 && (
+          <span className="ml-auto flex flex-wrap items-baseline gap-2 text-sm">
+            <span className="text-[var(--ink-muted)]">이 시점 리포트</span>
+            {koreanCompanies.map((company) => {
+              const name = company.nameKo ?? company.id;
+              return (
+                <a
+                  key={company.id}
+                  href={reportSearchUrl(periodToRange(period, name))}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 font-medium text-[#0072B2]
+                             underline underline-offset-2"
+                  title={`${name} · ${periodLabel} 전후 증권사 리포트 (한경 컨센서스)`}
+                >
+                  <span
+                    aria-hidden
+                    className="inline-block h-2 w-2 rounded-full"
+                    style={{ backgroundColor: company.color }}
+                  />
+                  {name}
+                  <span aria-hidden>↗</span>
+                </a>
+              );
+            })}
+          </span>
+        )}
       </div>
 
       <table className="w-full min-w-max border-collapse">

@@ -1,68 +1,48 @@
 import type { SeriesCompany } from '../lib/api.js';
+import { periodToRange, reportSearchUrl } from './reportLink.js';
 
 interface Props {
   companies: readonly SeriesCompany[];
+  /** 현재 보고 있는 기간 축. 링크를 그 구간으로 맞춘다 */
+  periods: readonly string[];
 }
 
 /**
- * 국내 기업 컨센서스는 링크아웃만 한다.
+ * 국내 기업 리포트 안내.
  *
  * 증권사 리포트와 그 컨센서스는 저작물이다. 가져와서 저장하거나 화면에
  * 다시 뿌리지 않고, 원문을 보러 가는 길만 놓는다.
  *
- * 한경 컨센서스는 종목코드로 바로 열리지 않아 검색 결과로 보낸다.
+ * 시점별 링크는 값 표(ReadoutPanel)에 있다. 여기는 "왜 숫자가 없는지" 를
+ * 설명하고 전체 기간 링크를 주는 자리다.
  */
-const HANKYUNG_SEARCH = 'https://consensus.hankyung.com/analysis/list';
-
-/**
- * 검색 기간.
- *
- * 날짜를 안 주면 한경이 **최근 7일**로 잡는다. 그 주에 리포트가 안 나온
- * 기업은 "결과가 없습니다"만 보게 되어, 링크가 고장난 것처럼 읽힌다.
- * 2년이면 어지간한 기업은 리포트가 몇 건씩 잡힌다.
- */
-const SEARCH_YEARS = 2;
-
-/** 종목 리포트만. 산업·시장 리포트가 섞이면 그 기업 이야기가 묻힌다 */
-const REPORT_TYPE_COMPANY = 'CO';
-
-function isoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
-export function KoreanConsensusLink({ companies }: Props): React.ReactElement | null {
+export function KoreanConsensusLink({ companies, periods }: Props): React.ReactElement | null {
   const korean = companies.filter((c) => c.country === 'KR');
   if (korean.length === 0) return null;
 
-  const today = new Date();
-  const from = new Date(today);
-  from.setFullYear(from.getFullYear() - SEARCH_YEARS);
+  const first = periods[0];
+  const last = periods[periods.length - 1];
+  if (first === undefined || last === undefined) return null;
 
   return (
     <section className="rounded-xl border border-[var(--line)] bg-white px-4 py-3">
       <h3 className="font-semibold">국내 기업 애널리스트 리포트</h3>
       <p className="mt-1 text-sm text-[var(--ink-muted)]">
-        증권사 리포트는 저작물이라 이 화면으로 가져오지 않습니다. 원문에서 직접 확인하세요.
+        증권사 리포트의 목표주가·추정치는 저작물이라 이 화면으로 가져오지 않습니다.
+        차트 위 값 표에서 <strong className="font-medium">그 시점 리포트</strong>로 바로 갈 수
+        있고, 아래는 보고 있는 기간 전체입니다.
       </p>
 
       <ul className="mt-2.5 flex flex-wrap gap-2">
         {korean.map((company) => {
           const name = company.nameKo ?? company.id;
-          /*
-           * search_text 가 실제로 필터링하는 항목이다.
-           * search_value 도 폼에 있지만 걸어도 안 먹고, 둘을 같이 넘기면
-           * 오히려 결과가 비어 버린다 — 하나만 쓴다.
-           */
-          const query = new URLSearchParams({
-            search_text: name,
-            sdate: isoDate(from),
-            edate: isoDate(today),
-            report_type: REPORT_TYPE_COMPANY,
-          });
+          // 축의 처음부터 끝까지를 한 구간으로 묶는다
+          const start = periodToRange(first, name);
+          const end = periodToRange(last, name);
           return (
             <li key={company.id}>
               <a
-                href={`${HANKYUNG_SEARCH}?${query.toString()}`}
+                href={reportSearchUrl({ name, from: start.from, to: end.to })}
                 target="_blank"
                 // noreferrer 까지 붙여야 원본 탭 정보가 새지 않는다
                 rel="noopener noreferrer"
