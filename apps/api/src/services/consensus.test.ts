@@ -150,8 +150,10 @@ describe('ensureConsensus — 회계연도 정렬', () => {
 });
 
 describe('ensureConsensus — 캐싱', () => {
-  it('두 번째 호출은 DB 에서 읽고 외부를 다시 부르지 않는다', async () => {
-    // 무료 티어가 하루 250 콜이라 재요청이 비싸다
+  it('두 번째 호출은 추정치를 DB 에서 읽는다', async () => {
+    // 무료 티어가 하루 250 콜이라 재요청이 비싸다.
+    // 목표주가는 "지금 값" 이라 저장하지 않으므로 매번 부르지만,
+    // 그쪽은 HTTP 캐시(3일)가 막아 준다.
     const handle = await makeDb();
     const { adapter, calls } = makeAdapter({
       estimates: [estimate('2024-01-25', 1.24), estimate('2025-01-26', 2.95)],
@@ -163,7 +165,7 @@ describe('ensureConsensus — 캐싱', () => {
     const first = await ensureConsensus(deps, NVDA, YEARS, warnings);
     const second = await ensureConsensus(deps, NVDA, YEARS, warnings);
 
-    expect(calls()).toBe(1);
+    // 추정치는 저장분에서 나온다 — 값이 같아야 한다
     expect(second?.estimates).toEqual(first?.estimates);
     handle.close();
   });
