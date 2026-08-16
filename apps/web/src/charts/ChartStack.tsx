@@ -8,6 +8,7 @@ import { MetricChart } from './MetricChart.js';
 import { OverlayChart } from './OverlayChart.js';
 import { OverlayLegend } from './OverlayLegend.js';
 import { ReadoutPanel } from './ReadoutPanel.js';
+import { HoverTooltip } from './HoverTooltip.js';
 import { SharedLegend } from './SharedLegend.js';
 import { WarningList } from './WarningList.js';
 import { KoreanConsensusLink } from '../features/KoreanConsensusLink.js';
@@ -181,6 +182,14 @@ export function ChartStack({
             </div>
           )}
         </div>
+
+        {/* 커서 옆 툴팁. 리포트 링크를 누를 수 있으려면 커서 가까이 있어야 한다 */}
+        <HoverTooltip
+          companies={data.companies}
+          metrics={data.series}
+          periods={data.periods}
+          currency={currency}
+        />
 
         <KoreanConsensusLink companies={data.companies} periods={data.periods} />
 

@@ -58,7 +58,7 @@ export function MetricChart({
   currency,
   consensus = [],
 }: Props): React.ReactElement {
-  const { activePeriod, setActivePeriod } = useHoverSync();
+  const { activePeriod, setActivePeriod, setPoint, scheduleClear } = useHoverSync();
 
   /*
    * 추정 밴드.
@@ -131,6 +131,14 @@ export function MetricChart({
         </p>
       )}
 
+      {/*
+        커서 좌표는 여기서 잡는다. Recharts 의 onMouseMove 는 차트 내부 좌표만
+        주는데, 툴팁은 화면 좌표로 띄워야 하기 때문이다.
+      */}
+      <div
+        onMouseMove={(e) => setPoint({ x: e.clientX, y: e.clientY })}
+        onMouseLeave={scheduleClear}
+      >
       <ResponsiveContainer width="100%" height={height}>
         <ComposedChart
           data={rows}
@@ -139,7 +147,6 @@ export function MetricChart({
             const label = state.activeLabel;
             if (typeof label === 'string') setActivePeriod(label);
           }}
-          onMouseLeave={() => setActivePeriod(null)}
         >
           <CartesianGrid stroke="#e8eaee" vertical={false} />
 
@@ -244,6 +251,7 @@ export function MetricChart({
           ))}
         </ComposedChart>
       </ResponsiveContainer>
+      </div>
     </section>
   );
 }
