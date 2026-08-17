@@ -97,8 +97,16 @@ export function App(): React.ReactElement {
     () => (data?.companies ?? []).some((c) => krResearchIds.has(c.id)),
     [data, krResearchIds],
   );
-  // 추정치가 있는 지표에만 밴드가 얹힌다
-  const hasEstimatedMetric = state.metrics.some((m) => isEstimatedMetric(m));
+  /*
+   * 컨센서스를 얹을 수 있는 지표를 보고 있는지.
+   *
+   * 연도별 추정 밴드는 매출액·EPS 에만 붙지만, **목표주가는 주가 차트**에
+   * 가로 띠로 눕는다. 주가를 빼 두면 목표주가만 있는 국내 기업은 토글조차
+   * 켤 수 없어서 아무것도 안 뜬다 — 실제로 그렇게 막혀 있었다.
+   */
+  const hasEstimatedMetric = state.metrics.some(
+    (m) => isEstimatedMetric(m) || m === 'closePrice',
+  );
   // 액면분할 조정은 주당 지표에만 영향을 준다. 매출액만 보고 있으면 띄울 이유가 없다.
   const hasPerShareMetric = state.metrics.some((m) => PER_SHARE_METRICS.has(m));
 

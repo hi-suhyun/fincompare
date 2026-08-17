@@ -41,14 +41,14 @@ export function ConsensusToggle({
 
   const reason = ((): string | null => {
     if (hasKrResearch && !hasEstimatedMetric) {
-      return '「매출액」이나 「EPS」를 선택하면 밴드를 얹을 수 있습니다.';
+      return '「매출액」·「EPS」·「주가」 중 하나를 선택하면 컨센서스를 얹을 수 있습니다.';
     }
     if (hasKrResearch) return null;
     if (!enabled && hasUsCompanies) {
       return '이 화면에서는 컨센서스를 제공하지 않습니다. 직접 설치해 본인 API 키를 넣으면 켜집니다.';
     }
     if (!hasUsCompanies) return null; // 국내 안내가 따로 나간다
-    if (!hasEstimatedMetric) return '「매출액」이나 「EPS」를 선택하면 밴드를 얹을 수 있습니다.';
+    if (!hasEstimatedMetric) return '「매출액」·「EPS」·「주가」 중 하나를 선택하면 컨센서스를 얹을 수 있습니다.';
     return null;
   })();
 
@@ -68,7 +68,7 @@ export function ConsensusToggle({
           </span>
           <span className="mt-0.5 block text-sm text-[var(--ink-muted)]">
             연도별 추정치 범위(최고·평균·최저)를 매출액·EPS 위에 겹쳐 봅니다. 그때의 추정이
-            실제와 얼마나 맞았는지 한눈에 보입니다. 현재 목표주가도 함께 표시합니다.
+            실제와 얼마나 맞았는지 한눈에 보입니다. 목표주가는 주가 차트에 가로 띠로 눕습니다.
           </span>
         </span>
       </label>

@@ -4,6 +4,7 @@ import {
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -84,6 +85,26 @@ export function MetricChart({
   const bandHiddenByCurrency =
     currencyMismatch && consensus.some((c) => c.estimates[metric.metricId] !== undefined);
 
+  /*
+   * 목표주가는 주가 차트에 가로 띠로 눕힌다.
+   *
+   * 연도별 추정치와 달리 목표주가는 "지금 값" 하나뿐이라 시계열이 될 수 없다.
+   * 그래도 주가 차트 위에 눕혀 두면 **지금 주가가 증권가 시각의 어디쯤인지**가
+   * 한눈에 보인다 — 이게 목표주가로 답할 수 있는 유일하게 정직한 질문이다.
+   *
+   * 축은 띠까지 담기게 아래 domain 에서 직접 넓힌다. 목표주가가 축 위로
+   * 잘려 나가면 "얼마나 위인지" 를 못 읽어서 띠를 그린 의미가 없다.
+   */
+  const priceTargets =
+    metric.metricId === 'closePrice' && !normalized
+      ? consensus.filter((c) => {
+          const t = c.priceTarget;
+          if (t === null) return false;
+          // 원화 목표주가를 달러 축에 얹으면 1,300배 어긋난다
+          return currency === 'mixed' || currency === t.currency;
+        })
+      : [];
+
   const rows = periods.map((period, index) => {
     const row: Record<string, string | number | null | [number, number]> = { period };
     for (const company of companies) {
@@ -107,6 +128,13 @@ export function MetricChart({
   const canUseLog = allValues.every((v) => v === null || v > 0);
   const useLog = logScale && canUseLog;
 
+  // 축이 담아야 하는 목표주가 값들. 로그 축은 눈금 규칙이 달라 건드리지 않는다
+  const targetBounds = useLog
+    ? []
+    : priceTargets
+        .flatMap((c) => [c.priceTarget?.low, c.priceTarget?.high])
+        .filter((v): v is number => typeof v === 'number');
+
   return (
     <section className="rounded-xl border border-[var(--line)] bg-white px-4 pb-2 pt-3">
       <div className="mb-1 flex items-baseline gap-2">
@@ -124,6 +152,14 @@ export function MetricChart({
         <p className="mb-1 text-sm text-[#8a5a00]">
           애널리스트 추정치는 달러 기준이라 원화 보기에서는 밴드를 그리지 않습니다.
           「표시 통화」를 원래 통화나 달러로 바꾸면 보입니다.
+        </p>
+      )}
+
+      {priceTargets.length > 0 && (
+        <p className="mb-1 text-sm text-[var(--ink-muted)]">
+          가로 띠는 <strong className="font-medium">현재 목표주가</strong>의 최고~최저 범위,
+          점선은 평균입니다. 과거 시점이 아니라 <strong className="font-medium">지금</strong>{' '}
+          시각이라 가로로 눕혀 둡니다 — 마지막 실제 주가와의 거리가 곧 증권가가 보는 여지입니다.
         </p>
       )}
 
@@ -192,7 +228,17 @@ export function MetricChart({
             tickLine={false}
             axisLine={false}
             scale={useLog ? 'log' : 'auto'}
-            domain={useLog ? ['auto', 'auto'] : ['auto', 'auto']}
+            /*
+             * 목표주가가 실제 주가 범위 밖이면 축을 직접 넓힌다.
+             *
+             * ReferenceArea 의 ifOverflow="extendDomain" 은 이 조합에서 먹지
+             * 않았다. 축이 그대로면 목표주가 띠가 화면 밖으로 잘려 "얼마나
+             * 위인지" 를 못 읽는데, 그게 이 띠를 그리는 이유의 전부다.
+             */
+            domain={targetBounds.length === 0 ? ['auto', 'auto'] : [
+              (min: number) => Math.min(min, ...targetBounds),
+              (max: number) => Math.max(max, ...targetBounds),
+            ]}
             tickFormatter={(value: number) => formatAxisTick(value, metric.unit, currency)}
           />
 
@@ -204,6 +250,50 @@ export function MetricChart({
           {activePeriod !== null && (
             <ReferenceLine x={activePeriod} stroke="#16181d" strokeWidth={1.5} strokeDasharray="4 3" />
           )}
+
+          {/*
+            목표주가 띠. 실제 주가 선보다 먼저 그려 뒤에 깔리게 한다.
+          */}
+          {/*
+            Fragment 로 묶지 않는다. Recharts 는 자식을 훑어 ReferenceArea 를
+            찾는데 Fragment 안까지 내려가지 않아서, 묶는 순간 통째로 사라진다.
+            위 밴드도 같은 이유로 두 번 나눠 그린다.
+          */}
+          {priceTargets.map((c) => {
+            const company = companies.find((x) => x.id === c.companyId);
+            const t = c.priceTarget;
+            if (company === undefined || t === null || t.low === null || t.high === null) {
+              return null;
+            }
+            return (
+              <ReferenceArea
+                key={`${c.companyId}-target-range`}
+                y1={t.low}
+                y2={t.high}
+                fill={company.color}
+                fillOpacity={0.1}
+                stroke="none"
+                ifOverflow="extendDomain"
+              />
+            );
+          })}
+
+          {priceTargets.map((c) => {
+            const company = companies.find((x) => x.id === c.companyId);
+            const t = c.priceTarget;
+            if (company === undefined || t === null || t.avg === null) return null;
+            return (
+              <ReferenceLine
+                key={`${c.companyId}-target-avg`}
+                y={t.avg}
+                stroke={company.color}
+                strokeWidth={1.5}
+                // 점선이라야 실제 주가(실선)와 헷갈리지 않는다
+                strokeDasharray="6 4"
+                ifOverflow="extendDomain"
+              />
+            );
+          })}
 
           {/*
             밴드를 선보다 먼저 그린다. 나중에 그린 것이 위에 오므로,
