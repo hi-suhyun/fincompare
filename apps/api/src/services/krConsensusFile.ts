@@ -26,10 +26,33 @@ import type { CompanyConsensus } from './consensus.js';
 
 const FILE_NAME = 'kr-consensus.json';
 
+/**
+ * 개별 증권사 목표주가.
+ *
+ * 평균 하나만 보면 "그 근처를 보는 곳이 많다" 로 읽히는데, 실제로는 양 끝만
+ * 있고 가운데가 비어 있는 경우가 흔하다 (SK하이닉스 148만 vs 470만).
+ * 그래서 집계와 함께 개별값도 적어 둘 수 있게 한다.
+ */
+const AnalystSchema = z.object({
+  firm: z.string(),
+  target: z.number(),
+  /** 리포트 발행일 (YYYY-MM-DD). 오래된 목표가는 이미 갱신됐을 수 있다 */
+  date: z.string().optional(),
+  /** '매수' · '중립' 등. 모르면 비운다 */
+  opinion: z.string().optional(),
+  /** 직전 목표가. 상향·하향을 보여줄 수 있다 */
+  previous: z.number().optional(),
+});
+
 const TargetSchema = z.object({
   high: z.number().nullable().default(null),
   avg: z.number().nullable().default(null),
   low: z.number().nullable().default(null),
+  /**
+   * 조사한 증권사 목록. 전체 집계가 아니라 **찾은 것만** 이다.
+   * 화면에서도 그렇게 밝힌다 — 이걸 전부로 읽으면 평균이 왜 그 값인지 어긋난다.
+   */
+  analysts: z.array(AnalystSchema).optional(),
 });
 
 const YearEstimateSchema = z.object({

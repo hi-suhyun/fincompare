@@ -141,6 +141,36 @@ export const SeriesWarningSchema = z.object({
 });
 export type SeriesWarning = z.infer<typeof SeriesWarningSchema>;
 
+/**
+ * 지표 한 줄 설명.
+ *
+ * "무엇인가" 가 아니라 **무엇을 조심해야 하는가** 를 적는다. 계산식은 이미
+ * METRIC_FORMULA 에 있고, 실사용자는 30년 경력 투자자다 — ROE 의 뜻을
+ * 설명하는 건 실례이고, 그 숫자가 언제 거짓말하는지가 실제로 쓸모 있다.
+ */
+export const METRIC_BLURB: Record<MetricId, string> = {
+  revenue: '사업 규모. 이익 없이 매출만 늘면 저가 수주나 밀어내기를 의심한다.',
+  operatingIncome: '본업에서 번 돈. 영업외 손익과 일회성이 빠져 있다.',
+  netIncome: '지배주주 몫 최종 이익. 일회성 손익이 섞여 해마다 튄다.',
+  netIncomeTotal: '비지배지분까지 더한 순이익. EPS 의 분자와는 다르다.',
+  totalAssets: '자산 총 규모. 자산이 늘어도 수익을 못 내면 ROE 가 떨어진다.',
+  totalLiabilities: '갚아야 할 총액. 무이자 부채(매입채무)와 차입금이 섞여 있다.',
+  totalEquity: '비지배지분까지 더한 자본. 부채비율의 분모다.',
+  equityControlling: '지배주주 몫 자본. BPS·ROE 가 이 값을 쓴다.',
+  sharesOutstanding: '보통주 유통주식수. 늘면 주당 가치가 희석된다.',
+  sharesTotal: '우선주까지 더한 주식수. BPS 계산에 쓴다.',
+  closePrice: '회계연도 기말 종가. 그 해 평균이 아니라 특정 하루 값이다.',
+  operatingMargin: '본업이 남기는 정도. 업종마다 수준이 달라 같은 업종끼리 본다.',
+  netMargin: '최종적으로 남는 비율. 일회성 손익에 흔들린다.',
+  roe: '주주 돈으로 얼마를 벌었나. 부채를 늘려도 오르니 부채비율과 같이 본다.',
+  debtRatio: '자본 대비 부채. 업종 표준이 다르고 금융업은 원래 높다.',
+  eps: '주당 이익. 자사주 소각으로도 오르니 순이익 흐름과 같이 본다.',
+  bps: '주당 순자산. 청산가치가 아니라 장부가다.',
+  per: '이익 대비 주가. 적자거나 이익이 일회성으로 부풀면 의미를 잃는다.',
+  pbr: '순자산 대비 주가. 자산이 무형인 업종에서는 높게 나온다.',
+  marketCap: '시장이 매긴 회사 값. 부채를 더한 EV 와는 다르다.',
+};
+
 export const METRIC_META: Record<MetricId, { label: string; unit: string; kind: 'absolute' | 'ratio' | 'valuation' }> = {
   revenue: { label: '매출액', unit: '통화', kind: 'absolute' },
   operatingIncome: { label: '영업이익', unit: '통화', kind: 'absolute' },

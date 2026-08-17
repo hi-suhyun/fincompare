@@ -35,12 +35,28 @@ export function isEstimatedMetric(metricId: MetricId): metricId is EstimatedMetr
   return (ESTIMATED_METRICS as readonly string[]).includes(metricId);
 }
 
+/** 개별 증권사가 낸 목표주가 하나 */
+export interface AnalystTarget {
+  firm: string;
+  target: number;
+  /** 리포트 발행일. 오래된 목표가는 이미 갱신됐을 수 있다 */
+  date?: string | undefined;
+  opinion?: string | undefined;
+  /** 직전 목표가. 있으면 상향·하향을 보여준다 */
+  previous?: number | undefined;
+}
+
 /** 현재 목표주가 컨센서스. 과거 이력이 없으므로 시계열이 아니다 */
 export interface PriceTargetConsensus {
   high: number | null;
   avg: number | null;
   low: number | null;
   currency: string;
+  /**
+   * 개별 증권사 목록. 비어 있을 수 있고, 있어도 **전체 집계가 아니다** —
+   * 직접 조사해 찾은 것만이다. 화면에서 그렇게 밝혀야 평균과 어긋나 보이지 않는다.
+   */
+  analysts?: readonly AnalystTarget[] | undefined;
 }
 
 /**

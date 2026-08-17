@@ -148,12 +148,24 @@ export interface ConsensusPoint {
   count: number;
 }
 
+/** 개별 증권사가 낸 목표주가 하나 */
+export interface AnalystTarget {
+  firm: string;
+  target: number;
+  date?: string;
+  opinion?: string;
+  /** 직전 목표가. 있으면 상향·하향을 보여준다 */
+  previous?: number;
+}
+
 /** 현재 목표주가 컨센서스. 과거 이력은 유료 구간이라 시계열이 아니다 */
 export interface PriceTargetConsensus {
   high: number | null;
   avg: number | null;
   low: number | null;
   currency: string;
+  /** 개별 증권사 목록. 전체 집계가 아니라 조사해 찾은 것만이다 */
+  analysts?: readonly AnalystTarget[];
 }
 
 export interface CompanyConsensus {

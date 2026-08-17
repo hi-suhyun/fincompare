@@ -1,4 +1,10 @@
-import { MAX_METRICS, METRIC_FORMULA, METRIC_META, type MetricId } from '@fincompare/shared';
+import {
+  MAX_METRICS,
+  METRIC_BLURB,
+  METRIC_FORMULA,
+  METRIC_META,
+  type MetricId,
+} from '@fincompare/shared';
 
 interface Props {
   selected: readonly MetricId[];
@@ -109,6 +115,21 @@ export function MetricPicker({
           })}
         </div>
       ))}
+
+      {/*
+        고른 지표만 설명한다. 스무 개를 전부 늘어놓으면 읽지 않는다.
+        선택 순서 그대로 둬야 차트가 쌓인 순서와 눈으로 짝지어진다.
+      */}
+      <dl className="flex flex-col gap-1 text-sm text-[var(--ink-muted)]">
+        {selected.map((metric) => (
+          <div key={metric} className="flex gap-2">
+            <dt className="w-24 shrink-0 font-medium text-[var(--ink)]">
+              {METRIC_META[metric].label}
+            </dt>
+            <dd>{METRIC_BLURB[metric]}</dd>
+          </div>
+        ))}
+      </dl>
 
       {hasUsCompanies && !usPricesEnabled && (
         <p className="text-sm text-[var(--ink-muted)]">

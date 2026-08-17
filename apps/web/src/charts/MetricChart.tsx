@@ -3,6 +3,7 @@ import {
   Area,
   CartesianGrid,
   ComposedChart,
+  Customized,
   Line,
   ReferenceArea,
   ReferenceLine,
@@ -14,8 +15,9 @@ import {
 import type { CompanyConsensus, SeriesCompany, SeriesMetric } from '../lib/api.js';
 import { formatAxisTick, unitLabel } from '../lib/format.js';
 import type { DisplayCurrency } from '../lib/format.js';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { useHoverSync } from './hoverSync.js';
+import { AnalystTargetPanel } from './AnalystTargetPanel.js';
 
 interface Props {
   metric: SeriesMetric;
@@ -50,6 +52,65 @@ interface Props {
 const Y_AXIS_WIDTH = 78;
 const CHART_MARGIN = { top: 8, right: 24, bottom: 4, left: 0 };
 
+/**
+ * Customized 가 넘겨주는 차트 내부값 중 우리가 쓰는 부분.
+ *
+ * Recharts 가 타입을 공개하지 않아 최소한만 좁혀 쓴다. 없으면 그냥 안 그린다.
+ */
+interface ChartInternals {
+  yAxisMap?: Record<string, { scale?: (value: number) => number }>;
+  offset?: { left: number; width: number };
+}
+
+/** 평균선을 집기 쉽게 덮는 투명 띠의 높이(px) */
+const HIT_AREA_HEIGHT = 18;
+
+function TargetHitAreas({
+  chart,
+  targets,
+  onEnter,
+}: {
+  chart: ChartInternals;
+  targets: readonly CompanyConsensus[];
+  onEnter: (c: CompanyConsensus) => void;
+}): React.ReactElement | null {
+  const yAxis = Object.values(chart.yAxisMap ?? {})[0];
+  const scale = yAxis?.scale;
+  const offset = chart.offset;
+  if (scale === undefined || offset === undefined) return null;
+
+  return (
+    <g>
+      {targets.map((c) => {
+        const avg = c.priceTarget?.avg;
+        if (avg === null || avg === undefined) return null;
+        const y = scale(avg);
+        if (!Number.isFinite(y)) return null;
+        return (
+          <rect
+            key={`${c.companyId}-hit`}
+            x={offset.left}
+            y={y - HIT_AREA_HEIGHT / 2}
+            width={offset.width}
+            height={HIT_AREA_HEIGHT}
+            fill="transparent"
+            style={{ cursor: 'pointer' }}
+            onMouseEnter={() => onEnter(c)}
+          />
+        );
+      })}
+    </g>
+  );
+}
+
+/**
+ * 목표주가 띠를 마지막 몇 구간에 걸칠지.
+ *
+ * 3 이면 최근 3년에만 걸린다. 목표주가는 "지금" 하나뿐이라 과거까지 덮으면
+ * 그때도 그렇게 봤다는 거짓말이 된다.
+ */
+const TARGET_BAND_PERIODS = 3;
+
 export function MetricChart({
   metric,
   companies,
@@ -62,6 +123,8 @@ export function MetricChart({
 }: Props): React.ReactElement {
   const { activePeriod, setActivePeriod, setPoint, scheduleClear } = useHoverSync();
   const chartBox = useRef<HTMLDivElement>(null);
+  // 평균선을 집었을 때 펼 증권사 표. null 이면 닫혀 있다
+  const [openTargets, setOpenTargets] = useState<CompanyConsensus | null>(null);
 
   /*
    * 추정 밴드.
@@ -135,6 +198,24 @@ export function MetricChart({
         .flatMap((c) => [c.priceTarget?.low, c.priceTarget?.high])
         .filter((v): v is number => typeof v === 'number');
 
+  /*
+   * 띠를 마지막 몇 해에만 건다.
+   *
+   * 전 구간에 깔면 2016년 자리까지 덮여서 "그때도 이렇게 봤다" 로 읽힌다.
+   * 목표주가는 오늘 하나뿐이라 그건 거짓이다. 오른쪽 끝에 붙여 두면
+   * 비교 대상이 마지막 실제 주가라는 게 그림만으로 드러난다.
+   */
+  const targetFrom = periods[Math.max(0, periods.length - TARGET_BAND_PERIODS)];
+  const targetTo = periods[periods.length - 1];
+  /*
+   * 띠를 걸 구간. 축이 비어 있으면 걸 자리가 없어 통째로 생략한다.
+   * 하나로 묶어 둬야 아래에서 from·to 가 있다는 것이 타입으로 좁혀진다.
+   */
+  const targetSpan =
+    priceTargets.length > 0 && targetFrom !== undefined && targetTo !== undefined
+      ? { from: targetFrom, to: targetTo }
+      : null;
+
   return (
     <section className="rounded-xl border border-[var(--line)] bg-white px-4 pb-2 pt-3">
       <div className="mb-1 flex items-baseline gap-2">
@@ -173,7 +254,18 @@ export function MetricChart({
         커서 좌표는 여기서 잡는다. Recharts 의 onMouseMove 는 차트 내부 좌표만
         주는데, 툴팁은 화면 좌표로 띄워야 하기 때문이다.
       */}
-      <div ref={chartBox} onMouseLeave={scheduleClear}>
+      <div ref={chartBox} onMouseLeave={scheduleClear} className="relative">
+        {/*
+          평균선 위에 올렸을 때 증권사별 목표가를 편다.
+          SVG 안에서는 표를 그릴 수 없어 위에 덮어 띄운다.
+        */}
+        {openTargets !== null && (
+          <AnalystTargetPanel
+            consensus={openTargets}
+            company={companies.find((x) => x.id === openTargets.companyId)}
+            onClose={() => setOpenTargets(null)}
+          />
+        )}
       <ResponsiveContainer width="100%" height={height}>
         <ComposedChart
           data={rows}
@@ -259,7 +351,9 @@ export function MetricChart({
             찾는데 Fragment 안까지 내려가지 않아서, 묶는 순간 통째로 사라진다.
             위 밴드도 같은 이유로 두 번 나눠 그린다.
           */}
-          {priceTargets.map((c) => {
+          {targetSpan === null
+            ? null
+            : priceTargets.map((c) => {
             const company = companies.find((x) => x.id === c.companyId);
             const t = c.priceTarget;
             if (company === undefined || t === null || t.low === null || t.high === null) {
@@ -268,32 +362,55 @@ export function MetricChart({
             return (
               <ReferenceArea
                 key={`${c.companyId}-target-range`}
+                x1={targetSpan.from}
+                x2={targetSpan.to}
                 y1={t.low}
                 y2={t.high}
                 fill={company.color}
                 fillOpacity={0.1}
                 stroke="none"
-                ifOverflow="extendDomain"
               />
             );
           })}
 
-          {priceTargets.map((c) => {
+          {targetSpan === null
+            ? null
+            : priceTargets.map((c) => {
             const company = companies.find((x) => x.id === c.companyId);
             const t = c.priceTarget;
             if (company === undefined || t === null || t.avg === null) return null;
             return (
               <ReferenceLine
                 key={`${c.companyId}-target-avg`}
-                y={t.avg}
+                segment={[
+                  { x: targetSpan.from, y: t.avg },
+                  { x: targetSpan.to, y: t.avg },
+                ]}
                 stroke={company.color}
                 strokeWidth={1.5}
                 // 점선이라야 실제 주가(실선)와 헷갈리지 않는다
                 strokeDasharray="6 4"
-                ifOverflow="extendDomain"
               />
             );
           })}
+
+          {/*
+            평균선을 집을 수 있게 투명한 띠를 덧댄다.
+            1.5px 선은 마우스로 맞히기 어렵고, Recharts 의 ReferenceLine 은
+            마우스 이벤트를 넘겨주지 않는다. Customized 로 실제 축 스케일을
+            받아 와야 평균값의 픽셀 위치를 정확히 알 수 있다.
+          */}
+          {targetSpan !== null && (
+            <Customized
+              component={(props: unknown) => (
+                <TargetHitAreas
+                  chart={props as ChartInternals}
+                  targets={priceTargets}
+                  onEnter={setOpenTargets}
+                />
+              )}
+            />
+          )}
 
           {/*
             밴드를 선보다 먼저 그린다. 나중에 그린 것이 위에 오므로,

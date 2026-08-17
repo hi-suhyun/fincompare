@@ -11,35 +11,62 @@
     "",
     "_ 로 시작하는 키는 무시되니 메모로 쓰셔도 됩니다."
   ],
-
   "entries": [
     {
       "companyId": "KR:005930",
       "_기업": "삼성전자",
       "asOf": "2026-08-15",
-
       "priceTarget": {
         "high": 670000,
         "avg": 491875,
-        "low": 370000
+        "low": 370000,
+        "analysts": [
+          {
+            "firm": "KB증권",
+            "target": 600000,
+            "date": "2026-08-11",
+            "opinion": "매수"
+          },
+          {
+            "firm": "미래에셋증권",
+            "target": 370000,
+            "date": "2026-08-05",
+            "previous": 420000
+          }
+        ]
       },
-
       "estimates": {
         "revenue": [
-          { "year": 2026, "high": 3450000, "avg": 3280000, "low": 3100000, "count": 21 }
+          {
+            "year": 2026,
+            "high": 3450000,
+            "avg": 3280000,
+            "low": 3100000,
+            "count": 21
+          }
         ],
-        "eps": [{ "year": 2026, "high": 9800, "avg": 8400, "low": 6900, "count": 21 }]
+        "eps": [
+          {
+            "year": 2026,
+            "high": 9800,
+            "avg": 8400,
+            "low": 6900,
+            "count": 21
+          }
+        ]
       },
-
-      "sources": ["https://markets.hankyung.com/stock/005930/consensus"],
+      "sources": [
+        "https://markets.hankyung.com/stock/005930/consensus"
+      ],
       "note": "증권사 21곳 집계."
     }
   ],
-
   "_단위": [
     "revenue 는 재무제표와 같은 단위(원)로 적습니다. 억 단위로 적으면 차트에서 어긋납니다.",
     "eps 는 주당 원입니다.",
     "모르는 값은 null 로 두거나 키를 빼면 됩니다.",
-    "estimates 없이 priceTarget 만 적어도 됩니다 — 안내 문구에 현재 목표주가로 표시됩니다."
+    "estimates 없이 priceTarget 만 적어도 됩니다 — 안내 문구에 현재 목표주가로 표시됩니다.",
+    "analysts 는 선택입니다. 적으면 평균선에 마우스를 올렸을 때 증권사별로 펼쳐집니다.",
+    "previous 를 적으면 상향(▲)·하향(▼)이 함께 표시됩니다."
   ]
 }
