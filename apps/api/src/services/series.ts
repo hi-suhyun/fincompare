@@ -31,7 +31,7 @@ import {
   loadCompanies,
   loadFacts,
 } from './financials.js';
-import { ensureClosePrices, isSplitAdjustedSource, type PriceDeps } from './prices.js';
+import { ensureClosePrices, ensureQuarterlyClosePrices, isSplitAdjustedSource, type PriceDeps } from './prices.js';
 import { ensureConsensus, type CompanyConsensus, type ConsensusWarning } from './consensus.js';
 import type { ConsensusAdapter } from '../adapters/consensus/types.js';
 import type { KrConsensusEntry } from './krConsensusFile.js';
@@ -221,6 +221,33 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
         ensureQuarterlyFinancials(deps, company, request.fromYear, request.toYear),
       ),
     );
+
+    /*
+     * 분기말 주가는 분기 재무데이터가 들어온 뒤에 받는다.
+     *
+     * 날짜를 분기 periodEnd 에서 뽑기 때문에 순서가 뒤바뀌면 받을 날짜가 없다.
+     * 이게 없으면 분기 화면에서 주가·PER 이 통째로 빈다 — loadFacts 가
+     * periodType 으로 거르는데 주가는 FY 로만 저장돼 있었다.
+     */
+    if (needsPrice) {
+      const quarterly = await Promise.allSettled(
+        companies.map((company) =>
+          ensureQuarterlyClosePrices(deps, company, request.fromYear, request.toYear),
+        ),
+      );
+      for (const [index, result] of quarterly.entries()) {
+        const company = companies[index];
+        if (company === undefined || result.status === 'rejected') continue;
+        for (const w of result.value) {
+          warnings.push({
+            companyId: w.companyId,
+            metricId: 'per',
+            code: 'PRICE_UNAVAILABLE',
+            detail: w.detail,
+          });
+        }
+      }
+    }
   }
 
   const facts = await loadFacts(
@@ -285,10 +312,16 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
    * 알릴 것이 있을 때만 경고가 쌓인다.
    */
   const consensus: CompanyConsensus[] = [];
-  // 컨센서스 추정치는 연간 단위라 분기 축에 얹을 수 없다
-  if (request.consensus && request.periodType === 'FY') {
+  if (request.consensus) {
     const consensusWarnings: ConsensusWarning[] = [];
-    const years = periods.map(Number);
+    /*
+     * 연도 축.
+     *
+     * 분기 화면에서는 라벨이 "2026Q2" 라 그대로 숫자로 못 바꾼다. 앞 네 자리를
+     * 떼어 연도만 뽑는다 — 연간 추정치는 어차피 분기 축에 못 얹지만(아래에서
+     * 걷어낸다), 목표주가는 "지금 값" 이라 분기 화면에서도 그려야 한다.
+     */
+    const years = [...new Set(periods.map((p) => Number(p.slice(0, 4))))];
     const results = await Promise.all(
       companies.map((company) =>
         ensureConsensus(
@@ -306,6 +339,14 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
 
     for (const result of results) {
       if (result === null) continue;
+
+      /*
+       * 분기 축에서는 연간 추정 밴드를 걷어낸다.
+       *
+       * 추정치는 연 단위라 분기 칸에 얹으면 자리가 어긋난다. 목표주가는
+       * 시계열이 아니라 "지금 값" 이므로 그대로 둔다 — 그것만 남는다.
+       */
+      if (request.periodType === 'Q') result.estimates = {};
 
       /*
        * 추정치를 주가·EPS 와 같은 기준에 놓는다.

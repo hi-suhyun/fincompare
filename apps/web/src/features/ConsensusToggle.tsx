@@ -68,7 +68,7 @@ export function ConsensusToggle({
           </span>
           <span className="mt-0.5 block text-sm text-[var(--ink-muted)]">
             연도별 추정치 범위(최고·평균·최저)를 매출액·EPS 위에 겹쳐 봅니다. 그때의 추정이
-            실제와 얼마나 맞았는지 한눈에 보입니다. 목표주가는 주가 차트에 가로 띠로 눕습니다.
+            실제와 얼마나 맞았는지 한눈에 보입니다. 목표주가는 주가 차트 오른쪽 끝에서 증권사별 가닥으로 뻗습니다.
           </span>
         </span>
       </label>

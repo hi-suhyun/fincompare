@@ -257,3 +257,128 @@ async function storePriceFacts(
       });
   }
 }
+
+/**
+ * 분기말 종가 수집.
+ *
+ * 분기 축에서는 연간 종가가 쓸모없다. loadFacts 가 periodType 으로 거르기 때문에
+ * FY 로 저장된 주가는 분기 화면에서 통째로 사라지고, PER 까지 같이 비었다.
+ *
+ * 날짜는 분기 재무데이터의 periodEnd 를 그대로 쓴다 — 분기말을 라벨에서
+ * 계산하면 결산월이 다른 기업에서 정렬이 어긋난다 (ensureClosePrices 주석 참고).
+ */
+export async function ensureQuarterlyClosePrices(
+  deps: PriceDeps,
+  company: CompanyRef,
+  fromYear: number,
+  toYear: number,
+): Promise<PriceWarning[]> {
+  const warnings: PriceWarning[] = [];
+  const adapter = adapterFor(deps, company);
+
+  // 어댑터가 없는 이유는 연간 경로에서 이미 알린다. 같은 말을 두 번 하지 않는다.
+  if (adapter === null) return warnings;
+
+  const identifier = identifierFor(adapter, company);
+  if (identifier === null) return warnings;
+
+  // 소스가 섞이면 수정주가와 실거래가가 뒤엉킨다 (ensureClosePrices 주석 참고)
+  const existing = await deps.db
+    .selectDistinct({
+      alignedYear: financialFacts.alignedYear,
+      alignedQuarter: financialFacts.alignedQuarter,
+    })
+    .from(financialFacts)
+    .where(
+      and(
+        eq(financialFacts.companyId, company.id),
+        eq(financialFacts.metricId, 'closePrice'),
+        eq(financialFacts.periodType, 'Q'),
+        eq(financialFacts.source, adapter.source),
+        gte(financialFacts.alignedYear, fromYear),
+        lte(financialFacts.alignedYear, toYear),
+      ),
+    );
+  const have = new Set(existing.map((r) => `${r.alignedYear}Q${r.alignedQuarter}`));
+
+  const periodEnds = await deps.db
+    .selectDistinct({
+      alignedYear: financialFacts.alignedYear,
+      alignedQuarter: financialFacts.alignedQuarter,
+      periodEnd: financialFacts.periodEnd,
+    })
+    .from(financialFacts)
+    .where(
+      and(
+        eq(financialFacts.companyId, company.id),
+        eq(financialFacts.periodType, 'Q'),
+        eq(financialFacts.metricId, 'revenue'),
+        gte(financialFacts.alignedYear, fromYear),
+        lte(financialFacts.alignedYear, toYear),
+      ),
+    );
+
+  const targets: Array<{ year: number; quarter: number; date: string }> = [];
+  for (const row of periodEnds) {
+    if (row.alignedQuarter === null) continue;
+    if (have.has(`${row.alignedYear}Q${row.alignedQuarter}`)) continue;
+    targets.push({ year: row.alignedYear, quarter: row.alignedQuarter, date: row.periodEnd });
+  }
+
+  if (targets.length === 0) return warnings;
+
+  let points: PricePoint[];
+  try {
+    points = await adapter.fetchCloses(
+      identifier,
+      targets.map((t) => t.date),
+    );
+  } catch (error) {
+    warnings.push({
+      companyId: company.id,
+      detail:
+        error instanceof SourceError
+          ? `분기 주가를 받지 못했습니다: ${error.message}`
+          : '분기 주가를 받지 못했습니다',
+    });
+    return warnings;
+  }
+
+  const byDate = new Map(points.map((p) => [p.date, p]));
+  const facts: FinancialDataPoint[] = [];
+  const priceRows: Array<typeof prices.$inferInsert> = [];
+
+  for (const target of targets) {
+    const point = byDate.get(target.date);
+    if (point === undefined) continue;
+
+    facts.push({
+      companyId: company.id,
+      metricId: 'closePrice' as BaseMetricId,
+      periodType: 'Q',
+      periodStart: null,
+      periodEnd: target.date,
+      fiscalYear: target.year,
+      fiscalQuarter: target.quarter,
+      alignedYear: target.year,
+      alignedQuarter: target.quarter,
+      value: point.close,
+      currency: point.currency,
+      consolidation: 'CFS',
+      source: adapter.source,
+      sourceTag: adapter.isSplitAdjusted ? 'close(수정주가)' : 'close(실거래)',
+      filedAt: null,
+    });
+
+    priceRows.push({
+      companyId: company.id,
+      date: target.date,
+      close: String(point.close),
+      currency: point.currency,
+      source: adapter.source,
+    });
+  }
+
+  await storePriceFacts(deps.db, facts, priceRows);
+  return warnings;
+}

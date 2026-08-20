@@ -62,7 +62,8 @@ const RESEARCH: CompanyConsensus = {
   sources: ['https://example.com/a'],
 };
 
-const PERIODS = ['2024', '2025', '2026'];
+// 마지막 칸이 예측 자리다. ChartStack 이 실제로도 한 칸을 덧붙여 넘긴다.
+const PERIODS = ['2024', '2025', '2026', '2027'];
 
 function draw(
   metric: SeriesMetric,
@@ -86,20 +87,25 @@ function draw(
   return container;
 }
 
-describe('MetricChart — 목표주가 띠', () => {
-  it('주가 차트에 가로 띠와 평균선을 눕힌다', () => {
+describe('MetricChart — 목표주가 가닥', () => {
+  it('마지막 실제 지점에서 증권사별로 갈라진다', () => {
     const container = draw(PRICE_METRIC, [RESEARCH]);
-    expect(container.querySelectorAll('[class*=reference-area]').length).toBeGreaterThan(0);
-    expect(container.querySelectorAll('[class*=reference-line]').length).toBeGreaterThan(0);
+    // 증권사 3곳 = 가닥 3개. 실제 주가 선까지 더해 4개가 된다.
+    const lines = container.querySelectorAll('[class*=recharts-line-curve]');
+    expect(lines.length).toBe(4);
   });
 
-  it('목표주가가 축 위로 잘리지 않게 축을 넓힌다', () => {
+  it('예측 지점에만 점을 찍는다 — 시작점은 실제 선에 이미 있다', () => {
+    const container = draw(PRICE_METRIC, [RESEARCH]);
+    // 가닥 3개 × 눈에 보이는 점 1개
+    const dots = container.querySelectorAll('g[style*="cursor: pointer"] circle[r="4"]');
+    expect(dots.length).toBe(3);
+  });
+
+  it('목표가가 축 위로 잘리지 않게 축을 넓힌다', () => {
     /*
-     * 실제 주가 최고가 334,000 인데 목표 상단이 650,000 이다.
-     * 축이 그대로면 띠가 화면 밖으로 나가 "얼마나 위인지" 를 못 읽는다.
-     *
-     * 눈금 문자열은 단위가 붙어 오므로(34만 · 340,000) 절대값을 못 박지 않고
-     * 목표주가가 없을 때와 견준다 — 넓어졌다는 사실만 확인하면 된다.
+     * 실제 주가 최고가 334,000 인데 목표 상단이 470만이다.
+     * 축이 그대로면 가닥이 화면 밖으로 나가 얼마나 위인지 못 읽는다.
      */
     const topTick = (el: HTMLElement): number => {
       const ys = [...el.querySelectorAll('[class*=yAxis] text')].map((t) =>
@@ -115,83 +121,49 @@ describe('MetricChart — 목표주가 띠', () => {
     expect(withTarget).toBeGreaterThan(without);
   });
 
-  it('주가가 아닌 지표에는 눕히지 않는다', () => {
+  it('주가가 아닌 지표에는 그리지 않는다', () => {
     const revenue = { ...PRICE_METRIC, metricId: 'revenue', label: '매출액' } as SeriesMetric;
     const container = draw(revenue, [RESEARCH]);
-    expect(container.querySelectorAll('[class*=reference-area]').length).toBe(0);
+    expect(container.querySelectorAll('g[style*="cursor: pointer"] circle[r="4"]').length).toBe(0);
   });
 
   it('통화가 어긋나면 그리지 않는다 — 원화 목표주가를 달러 축에 얹을 수 없다', () => {
     const container = draw(PRICE_METRIC, [RESEARCH], 'USD');
-    expect(container.querySelectorAll('[class*=reference-area]').length).toBe(0);
+    expect(container.querySelectorAll('g[style*="cursor: pointer"] circle[r="4"]').length).toBe(0);
   });
 
-  it('목표주가가 없으면 아무것도 눕히지 않는다', () => {
-    const container = draw(PRICE_METRIC, [{ ...RESEARCH, priceTarget: null }]);
-    expect(container.querySelectorAll('[class*=reference-area]').length).toBe(0);
-  });
-
-  it('띠를 전 구간이 아니라 마지막 몇 해에만 건다', () => {
-    /*
-     * 목표주가는 오늘 하나뿐이다. 2016년 자리까지 덮으면 "그때도 이렇게 봤다"
-     * 로 읽히는데 그건 거짓이다.
-     */
-    const long = { ...PRICE_METRIC, data: { 'KR:005930': [1, 2, 3, 4, 5, 334000] } } as SeriesMetric;
-    const { container } = render(
-      <HoverSyncProvider>
-        <MetricChart
-          metric={long}
-          companies={[SAMSUNG]}
-          periods={['2021', '2022', '2023', '2024', '2025', '2026']}
-          height={300}
-          showXAxisLabels
-          logScale={false}
-          currency="KRW"
-          consensus={[RESEARCH]}
-        />
-      </HoverSyncProvider>,
-    );
-
-    const band = container.querySelector('[class*=reference-area-rect]');
-    expect(band).not.toBeNull();
-
-    // 마지막 3개 구간(2024~2026)에만 걸려야 한다
-    expect(band?.getAttribute('x1')).toBe('2024');
-    expect(band?.getAttribute('x2')).toBe('2026');
-
-    // 그림 영역 전체를 덮으면 안 된다
-    const gridLine = container.querySelector('[class*=cartesian-grid] line');
-    const bandWidth = Number(band?.getAttribute('width') ?? 0);
-    const plotWidth = Number(gridLine?.getAttribute('width') ?? 0);
-    expect(bandWidth).toBeGreaterThan(0);
-    expect(bandWidth).toBeLessThan(plotWidth);
+  it('증권사별 목표가가 없으면 그리지 않는다', () => {
+    const noAnalysts = {
+      ...RESEARCH,
+      priceTarget: { high: 650000, avg: 493542, low: 300000, currency: 'KRW' },
+    };
+    const container = draw(PRICE_METRIC, [noAnalysts]);
+    expect(container.querySelectorAll('g[style*="cursor: pointer"] circle[r="4"]').length).toBe(0);
   });
 });
 
-describe('AnalystTargetPanel — 증권사별 목표주가', () => {
-  it('평균선 위에 올리면 증권사별로 펼친다', async () => {
+describe('AnalystTargetPanel — 점에 올렸을 때', () => {
+  it('어느 증권사가 낸 값인지 보여준다', async () => {
     const container = draw(PRICE_METRIC, [RESEARCH]);
-    const hit = container.querySelector('rect[fill=transparent]');
-    expect(hit).not.toBeNull();
+    const dot = container.querySelector('g[style*="cursor: pointer"]');
+    expect(dot).not.toBeNull();
 
-    fireEvent.mouseEnter(hit as Element);
+    fireEvent.mouseEnter(dot as Element);
+    // 가장 높은 값을 낸 곳이 첫 가닥이다
     expect(await screen.findByText('한국투자증권')).toBeTruthy();
-    expect(screen.getByText('DB증권')).toBeTruthy();
   });
 
   it('상향·하향을 직전 목표가와 함께 보여준다', async () => {
     const container = draw(PRICE_METRIC, [RESEARCH]);
-    fireEvent.mouseEnter(container.querySelector('rect[fill=transparent]') as Element);
+    fireEvent.mouseEnter(container.querySelector('g[style*="cursor: pointer"]') as Element);
     // 한국투자 380만 -> 470만 상향
-    expect(await screen.findByText(/▲/)).toBeTruthy();
-    // 미래에셋 420만 -> 280만 하향
-    expect(screen.getByText(/▼/)).toBeTruthy();
+    expect(await screen.findByText(/직전 .*에서 상향/)).toBeTruthy();
   });
 
   it('전체 집계가 아니라는 것을 밝힌다', async () => {
     // 조사한 것만 실리므로 평균·개수가 안 맞을 수 있다. 그걸 오류로 읽으면 곤란하다.
     const container = draw(PRICE_METRIC, [RESEARCH]);
-    fireEvent.mouseEnter(container.querySelector('rect[fill=transparent]') as Element);
-    expect(await screen.findByText(/전체 집계가 아니라서/)).toBeTruthy();
+    fireEvent.mouseEnter(container.querySelector('g[style*="cursor: pointer"]') as Element);
+    expect(await screen.findByText(/전체 집계가 아니라/)).toBeTruthy();
   });
 });

@@ -3,9 +3,7 @@ import {
   Area,
   CartesianGrid,
   ComposedChart,
-  Customized,
   Line,
-  ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -18,6 +16,7 @@ import type { DisplayCurrency } from '../lib/format.js';
 import { useRef, useState } from 'react';
 import { useHoverSync } from './hoverSync.js';
 import { AnalystTargetPanel } from './AnalystTargetPanel.js';
+import { lastActualIndex, projectionsFor, type Projection } from './projection.js';
 
 interface Props {
   metric: SeriesMetric;
@@ -52,64 +51,50 @@ interface Props {
 const Y_AXIS_WIDTH = 78;
 const CHART_MARGIN = { top: 8, right: 24, bottom: 4, left: 0 };
 
-/**
- * Customized 가 넘겨주는 차트 내부값 중 우리가 쓰는 부분.
- *
- * Recharts 가 타입을 공개하지 않아 최소한만 좁혀 쓴다. 없으면 그냥 안 그린다.
- */
-interface ChartInternals {
-  yAxisMap?: Record<string, { scale?: (value: number) => number }>;
-  offset?: { left: number; width: number };
+/** 가닥을 몇 개까지 그릴지. 넘으면 겹쳐서 오히려 안 읽힌다 */
+const MAX_PROJECTIONS = 4;
+
+/** Recharts 가 점 렌더러에 넘겨주는 값 중 우리가 쓰는 것 */
+interface DotProps {
+  cx?: number;
+  cy?: number;
+  index?: number;
+  value?: number | null;
 }
 
-/** 평균선을 집기 쉽게 덮는 투명 띠의 높이(px) */
-const HIT_AREA_HEIGHT = 18;
-
-function TargetHitAreas({
-  chart,
-  targets,
+/**
+ * 가닥 끝의 점.
+ *
+ * 예측 지점에만 찍는다. 시작점은 실제 주가 선 위라 이미 점이 있고,
+ * 두 번 찍으면 같은 값이 겹쳐 보인다.
+ *
+ * 점 위에 올리면 어느 증권사가 낸 값인지 편다. 선은 옅어서 집기 어려우므로
+ * 눈에 보이는 점보다 큰 투명 원을 겹쳐 둔다.
+ */
+function ProjectionDot({
+  dot,
+  projection,
+  color,
   onEnter,
 }: {
-  chart: ChartInternals;
-  targets: readonly CompanyConsensus[];
-  onEnter: (c: CompanyConsensus) => void;
+  dot: DotProps;
+  projection: Projection;
+  color: string;
+  onEnter: (p: Projection) => void;
 }): React.ReactElement | null {
-  const yAxis = Object.values(chart.yAxisMap ?? {})[0];
-  const scale = yAxis?.scale;
-  const offset = chart.offset;
-  if (scale === undefined || offset === undefined) return null;
+  const { cx, cy, value } = dot;
+  if (cx === undefined || cy === undefined) return null;
+  // 시작점(실제 주가와 같은 값)에는 찍지 않는다
+  if (value !== projection.target) return null;
 
   return (
-    <g>
-      {targets.map((c) => {
-        const avg = c.priceTarget?.avg;
-        if (avg === null || avg === undefined) return null;
-        const y = scale(avg);
-        if (!Number.isFinite(y)) return null;
-        return (
-          <rect
-            key={`${c.companyId}-hit`}
-            x={offset.left}
-            y={y - HIT_AREA_HEIGHT / 2}
-            width={offset.width}
-            height={HIT_AREA_HEIGHT}
-            fill="transparent"
-            style={{ cursor: 'pointer' }}
-            onMouseEnter={() => onEnter(c)}
-          />
-        );
-      })}
+    <g style={{ cursor: 'pointer' }} onMouseEnter={() => onEnter(projection)}>
+      <circle cx={cx} cy={cy} r={4} fill={color} fillOpacity={0.75} />
+      <circle cx={cx} cy={cy} r={11} fill="transparent" />
     </g>
   );
 }
 
-/**
- * 목표주가 띠를 마지막 몇 구간에 걸칠지.
- *
- * 3 이면 최근 3년에만 걸린다. 목표주가는 "지금" 하나뿐이라 과거까지 덮으면
- * 그때도 그렇게 봤다는 거짓말이 된다.
- */
-const TARGET_BAND_PERIODS = 3;
 
 export function MetricChart({
   metric,
@@ -124,7 +109,7 @@ export function MetricChart({
   const { activePeriod, setActivePeriod, setPoint, scheduleClear } = useHoverSync();
   const chartBox = useRef<HTMLDivElement>(null);
   // 평균선을 집었을 때 펼 증권사 표. null 이면 닫혀 있다
-  const [openTargets, setOpenTargets] = useState<CompanyConsensus | null>(null);
+  const [openTargets, setOpenTargets] = useState<Projection | null>(null);
 
   /*
    * 추정 밴드.
@@ -149,14 +134,10 @@ export function MetricChart({
     currencyMismatch && consensus.some((c) => c.estimates[metric.metricId] !== undefined);
 
   /*
-   * 목표주가는 주가 차트에 가로 띠로 눕힌다.
+   * 목표주가는 주가 선의 연장으로 그린다.
    *
-   * 연도별 추정치와 달리 목표주가는 "지금 값" 하나뿐이라 시계열이 될 수 없다.
-   * 그래도 주가 차트 위에 눕혀 두면 **지금 주가가 증권가 시각의 어디쯤인지**가
-   * 한눈에 보인다 — 이게 목표주가로 답할 수 있는 유일하게 정직한 질문이다.
-   *
-   * 축은 띠까지 담기게 아래 domain 에서 직접 넓힌다. 목표주가가 축 위로
-   * 잘려 나가면 "얼마나 위인지" 를 못 읽어서 띠를 그린 의미가 없다.
+   * 마지막 실제 지점에서 다음 구간까지 증권사별로 한 가닥씩 옅게 뻗는다.
+   * 부챗살이 벌어진 폭이 곧 증권가의 의견 차이다. 자세한 이유는 projection.ts.
    */
   const priceTargets =
     metric.metricId === 'closePrice' && !normalized
@@ -167,6 +148,8 @@ export function MetricChart({
           return currency === 'mixed' || currency === t.currency;
         })
       : [];
+
+  const projections = priceTargets.flatMap((c) => projectionsFor(c, MAX_PROJECTIONS));
 
   const rows = periods.map((period, index) => {
     const row: Record<string, string | number | null | [number, number]> = { period };
@@ -184,6 +167,28 @@ export function MetricChart({
     return row;
   });
 
+  /*
+   * 가닥을 rows 에 심는다.
+   *
+   * 마지막 실제 지점과 예측 지점 두 칸에만 값을 넣는다. 나머지는 null 이라
+   * connectNulls={false} 로 두면 그 구간만 선이 그려진다.
+   */
+  const anchorIndex = new Map<string, number>();
+  for (const company of companies) {
+    anchorIndex.set(company.id, lastActualIndex(metric.data[company.id] ?? []));
+  }
+
+  const forecastIndex = periods.length - 1;
+  for (const p of projections) {
+    const from = anchorIndex.get(p.companyId);
+    if (from === undefined || from < 0 || from >= forecastIndex) continue;
+    const anchor = rows[from];
+    const tip = rows[forecastIndex];
+    if (anchor === undefined || tip === undefined) continue;
+    anchor[p.key] = metric.data[p.companyId]?.[from] ?? null;
+    tip[p.key] = p.target;
+  }
+
   const allValues = companies.flatMap((c) => metric.data[c.id] ?? []);
   const displayUnit = unitLabel(metric.unit, allValues, currency);
 
@@ -191,30 +196,8 @@ export function MetricChart({
   const canUseLog = allValues.every((v) => v === null || v > 0);
   const useLog = logScale && canUseLog;
 
-  // 축이 담아야 하는 목표주가 값들. 로그 축은 눈금 규칙이 달라 건드리지 않는다
-  const targetBounds = useLog
-    ? []
-    : priceTargets
-        .flatMap((c) => [c.priceTarget?.low, c.priceTarget?.high])
-        .filter((v): v is number => typeof v === 'number');
-
-  /*
-   * 띠를 마지막 몇 해에만 건다.
-   *
-   * 전 구간에 깔면 2016년 자리까지 덮여서 "그때도 이렇게 봤다" 로 읽힌다.
-   * 목표주가는 오늘 하나뿐이라 그건 거짓이다. 오른쪽 끝에 붙여 두면
-   * 비교 대상이 마지막 실제 주가라는 게 그림만으로 드러난다.
-   */
-  const targetFrom = periods[Math.max(0, periods.length - TARGET_BAND_PERIODS)];
-  const targetTo = periods[periods.length - 1];
-  /*
-   * 띠를 걸 구간. 축이 비어 있으면 걸 자리가 없어 통째로 생략한다.
-   * 하나로 묶어 둬야 아래에서 from·to 가 있다는 것이 타입으로 좁혀진다.
-   */
-  const targetSpan =
-    priceTargets.length > 0 && targetFrom !== undefined && targetTo !== undefined
-      ? { from: targetFrom, to: targetTo }
-      : null;
+  // 축이 담아야 하는 목표가들. 로그 축은 눈금 규칙이 달라 건드리지 않는다
+  const targetBounds = useLog ? [] : projections.map((p) => p.target);
 
   return (
     <section className="rounded-xl border border-[var(--line)] bg-white px-4 pb-2 pt-3">
@@ -236,11 +219,12 @@ export function MetricChart({
         </p>
       )}
 
-      {priceTargets.length > 0 && (
+      {projections.length > 0 && (
         <p className="mb-1 text-sm text-[var(--ink-muted)]">
-          가로 띠는 <strong className="font-medium">현재 목표주가</strong>의 최고~최저 범위,
-          점선은 평균입니다. 과거 시점이 아니라 <strong className="font-medium">지금</strong>{' '}
-          시각이라 가로로 눕혀 둡니다 — 마지막 실제 주가와의 거리가 곧 증권가가 보는 여지입니다.
+          오른쪽 끝에서 갈라지는 옅은 점선은 <strong className="font-medium">증권사별 목표주가</strong>
+          입니다. 점에 마우스를 올리면 어느 증권사인지 나옵니다. 벌어진 폭이 곧 의견 차이입니다 —
+          목표주가는 통상 12개월 기준이라, 다음 구간에 찍은 것은 자리를 표시한 것이지 그때
+          그 값이 된다는 뜻이 아닙니다.
         </p>
       )}
 
@@ -261,7 +245,8 @@ export function MetricChart({
         */}
         {openTargets !== null && (
           <AnalystTargetPanel
-            consensus={openTargets}
+            projection={openTargets}
+            consensus={priceTargets.find((c) => c.companyId === openTargets.companyId)}
             company={companies.find((x) => x.id === openTargets.companyId)}
             onClose={() => setOpenTargets(null)}
           />
@@ -347,70 +332,37 @@ export function MetricChart({
             목표주가 띠. 실제 주가 선보다 먼저 그려 뒤에 깔리게 한다.
           */}
           {/*
-            Fragment 로 묶지 않는다. Recharts 는 자식을 훑어 ReferenceArea 를
-            찾는데 Fragment 안까지 내려가지 않아서, 묶는 순간 통째로 사라진다.
-            위 밴드도 같은 이유로 두 번 나눠 그린다.
+            목표주가 가닥. 실제 선보다 먼저 그려 뒤에 깔리게 한다.
+            옅게 두는 건 이게 공시값이 아니라 의견이기 때문이다.
           */}
-          {targetSpan === null
-            ? null
-            : priceTargets.map((c) => {
-            const company = companies.find((x) => x.id === c.companyId);
-            const t = c.priceTarget;
-            if (company === undefined || t === null || t.low === null || t.high === null) {
-              return null;
-            }
+          {projections.map((p) => {
+            const company = companies.find((x) => x.id === p.companyId);
+            if (company === undefined) return null;
             return (
-              <ReferenceArea
-                key={`${c.companyId}-target-range`}
-                x1={targetSpan.from}
-                x2={targetSpan.to}
-                y1={t.low}
-                y2={t.high}
-                fill={company.color}
-                fillOpacity={0.1}
-                stroke="none"
-              />
-            );
-          })}
-
-          {targetSpan === null
-            ? null
-            : priceTargets.map((c) => {
-            const company = companies.find((x) => x.id === c.companyId);
-            const t = c.priceTarget;
-            if (company === undefined || t === null || t.avg === null) return null;
-            return (
-              <ReferenceLine
-                key={`${c.companyId}-target-avg`}
-                segment={[
-                  { x: targetSpan.from, y: t.avg },
-                  { x: targetSpan.to, y: t.avg },
-                ]}
+              <Line
+                key={p.key}
+                type="linear"
+                dataKey={p.key}
                 stroke={company.color}
+                strokeOpacity={0.45}
                 strokeWidth={1.5}
-                // 점선이라야 실제 주가(실선)와 헷갈리지 않는다
-                strokeDasharray="6 4"
+                strokeDasharray="5 4"
+                connectNulls={false}
+                isAnimationActive={false}
+                legendType="none"
+                name={`${p.firm} 목표주가`}
+                activeDot={false}
+                dot={(dotProps: unknown) => (
+                  <ProjectionDot
+                    dot={dotProps as DotProps}
+                    projection={p}
+                    color={company.color}
+                    onEnter={setOpenTargets}
+                  />
+                )}
               />
             );
           })}
-
-          {/*
-            평균선을 집을 수 있게 투명한 띠를 덧댄다.
-            1.5px 선은 마우스로 맞히기 어렵고, Recharts 의 ReferenceLine 은
-            마우스 이벤트를 넘겨주지 않는다. Customized 로 실제 축 스케일을
-            받아 와야 평균값의 픽셀 위치를 정확히 알 수 있다.
-          */}
-          {targetSpan !== null && (
-            <Customized
-              component={(props: unknown) => (
-                <TargetHitAreas
-                  chart={props as ChartInternals}
-                  targets={priceTargets}
-                  onEnter={setOpenTargets}
-                />
-              )}
-            />
-          )}
 
           {/*
             밴드를 선보다 먼저 그린다. 나중에 그린 것이 위에 오므로,

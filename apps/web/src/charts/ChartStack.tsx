@@ -3,6 +3,7 @@ import { useMemo, useRef } from 'react';
 import { ExportButtons } from '../features/export/ExportButtons.js';
 import type { SeriesResponse } from '../lib/api.js';
 import { formatByUnit, resolveCurrency } from '../lib/format.js';
+import { nextPeriodLabel } from './projection.js';
 import { HoverSyncProvider } from './hoverSync.js';
 import { MetricChart } from './MetricChart.js';
 import { OverlayChart } from './OverlayChart.js';
@@ -95,6 +96,23 @@ export function ChartStack({
     data.series.some((metric) =>
       drawableConsensus.some((c) => c.estimates[metric.metricId] !== undefined),
     );
+
+  /*
+   * 목표주가 가닥이 뻗을 자리를 축 끝에 한 칸 만든다.
+   *
+   * 차트끼리 X축이 어긋나면 안 되므로 **모든 차트에** 같은 축을 준다.
+   * 값 표와 툴팁에는 원래 축을 그대로 준다 — 실제값이 없는 칸이라
+   * "데이터 없음" 만 뜨는데, 그건 읽을 것이 아니라 소음이다.
+   */
+  const showsPrice = data.series.some((m) => m.metricId === 'closePrice');
+  const hasProjections = drawableConsensus.some(
+    (c) => (c.priceTarget?.analysts?.length ?? 0) > 0,
+  );
+  const axisPeriods = useMemo(() => {
+    const last = data.periods[data.periods.length - 1];
+    if (!showsPrice || !hasProjections || overlay || last === undefined) return data.periods;
+    return [...data.periods, nextPeriodLabel(last)];
+  }, [data.periods, showsPrice, hasProjections, overlay]);
 
   // 직접 조사한 기록은 제공처 데이터와 구분해서 보여줘야 한다 — 출처와 조사 시점까지
   const researched = data.consensus.filter((c) => c.sources !== undefined && c.sources.length > 0);
@@ -288,7 +306,7 @@ export function ChartStack({
                   key={metric.metricId}
                   metric={metric}
                   companies={data.companies}
-                  periods={data.periods}
+                  periods={axisPeriods}
                   height={height}
                   showXAxisLabels={index === data.series.length - 1}
                   logScale={logScale}

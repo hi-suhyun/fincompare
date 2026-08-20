@@ -47,7 +47,8 @@ export function PeriodTypeToggle({ value, onChange, consensusOn }: Props): React
         <p className="max-w-xs text-sm text-[var(--ink-muted)]">
           처음 보는 기업은 분기 공시를 받아오느라 조금 걸립니다. 한 번 받으면 그 뒤로는
           바로 나옵니다.
-          {consensusOn && ' 애널리스트 추정치는 연간 단위라 분기에서는 표시되지 않습니다.'}
+          {consensusOn &&
+            ' 매출액·EPS 추정 밴드는 연간 단위라 분기에서는 빠집니다. 목표주가 가닥은 그대로 보입니다.'}
         </p>
       )}
     </div>
