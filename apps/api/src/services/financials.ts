@@ -970,3 +970,88 @@ async function existingQuarters(
     );
   return new Set(rows.filter((r) => r.quarter !== null).map((r) => `${r.year}Q${r.quarter}`));
 }
+
+/**
+ * 분할이 있던 해의 **분기별** 주식수.
+ *
+ * 분기 축에서 액면분할을 제자리에 조정하려면 어느 분기에 갈렸는지 알아야 한다.
+ * 연간 주식수만 보면 "2017년과 2018년 사이" 까지밖에 모르는데, 삼성전자
+ * 50:1 은 2018년 5월이라 2018Q1 은 아직 분할 전이다. 연간 계수를 그대로
+ * 먹이면 2018Q1 하나가 50배 튄 채로 남는다.
+ *
+ * 전 구간을 받으면 기업×연도×3 회라 비싸다. **분할이 감지된 해만** 받는다 —
+ * 대개 한 기업에 한두 해뿐이다.
+ */
+export async function ensureQuarterlyShares(
+  deps: FinancialsDeps,
+  company: CompanyRef,
+  years: readonly number[],
+): Promise<void> {
+  if (company.corpCode === null || years.length === 0) return;
+
+  const byQuarter: Array<[number, string]> = [
+    [1, REPORT_CODE.Q1],
+    [2, REPORT_CODE.HALF],
+    [3, REPORT_CODE.Q3],
+    [4, REPORT_CODE.ANNUAL],
+  ];
+
+  const points: FinancialDataPoint[] = [];
+
+  for (const year of years) {
+    const existing = await deps.db
+      .select({ quarter: financialFacts.alignedQuarter })
+      .from(financialFacts)
+      .where(
+        and(
+          eq(financialFacts.companyId, company.id),
+          eq(financialFacts.metricId, 'sharesOutstanding'),
+          eq(financialFacts.periodType, 'Q'),
+          eq(financialFacts.alignedYear, year),
+        ),
+      );
+    const have = new Set(existing.map((r) => r.quarter));
+
+    for (const [quarter, reportCode] of byQuarter) {
+      if (have.has(quarter)) continue;
+
+      const stock = await deps.dart.call(
+        'stockTotqySttus',
+        { corp_code: company.corpCode, bsns_year: year, reprt_code: reportCode },
+        DartStockResponseSchema,
+      );
+      if (stock === null) continue;
+
+      const shares = extractShares(stock.list ?? []);
+      // 분기말을 그대로 쓴다. 결산월이 12월이 아닌 국내 기업은 드물다.
+      const periodEnd = `${year}-${String(quarter * 3).padStart(2, '0')}-${
+        quarter * 3 === 6 || quarter * 3 === 9 ? '30' : '31'
+      }`;
+
+      for (const [metricId, value] of [
+        ['sharesOutstanding', shares.common.outstanding],
+        ['sharesTotal', shares.totalOutstanding],
+      ] as Array<[BaseMetricId, number | null]>) {
+        points.push({
+          companyId: company.id,
+          metricId,
+          periodType: 'Q',
+          periodStart: null,
+          periodEnd,
+          fiscalYear: year,
+          fiscalQuarter: quarter,
+          alignedYear: year,
+          alignedQuarter: quarter,
+          value,
+          currency: 'KRW',
+          consolidation: 'CFS',
+          source: 'DART',
+          sourceTag: 'stockTotqySttus',
+          filedAt: null,
+        });
+      }
+    }
+  }
+
+  await storeFacts(deps.db, points);
+}

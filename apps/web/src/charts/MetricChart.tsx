@@ -347,7 +347,12 @@ export function MetricChart({
                 strokeOpacity={0.45}
                 strokeWidth={1.5}
                 strokeDasharray="5 4"
-                connectNulls={false}
+                /*
+                 * 가닥은 두 점을 잇는 것이 전부라 사이를 건너뛰어야 한다.
+                 * 분기 축은 마지막 실적(2026Q2)과 예측 자리(2027Q1) 사이에
+                 * 아직 안 지난 분기가 비어 있어서, 끊으면 점만 남는다.
+                 */
+                connectNulls
                 isAnimationActive={false}
                 legendType="none"
                 name={`${p.firm} 목표주가`}

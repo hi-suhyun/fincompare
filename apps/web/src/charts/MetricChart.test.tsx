@@ -88,6 +88,36 @@ function draw(
 }
 
 describe('MetricChart — 목표주가 가닥', () => {
+  it('실적과 예측 사이가 비어 있어도 선을 잇는다', () => {
+    /*
+     * 분기 축은 아직 안 지난 분기가 뒤에 비어 있다. 끊으면 점만 남고
+     * 선이 사라져서 어디서 갈라졌는지 알 수 없다.
+     */
+    const gapped = {
+      ...PRICE_METRIC,
+      data: { 'KR:005930': [55000, 78000, 334000, null, null] },
+    } as SeriesMetric;
+    const { container } = render(
+      <HoverSyncProvider>
+        <MetricChart
+          metric={gapped}
+          companies={[SAMSUNG]}
+          periods={['2024Q1', '2024Q2', '2024Q3', '2024Q4', '2025Q1']}
+          height={300}
+          showXAxisLabels
+          logScale={false}
+          currency="KRW"
+          consensus={[RESEARCH]}
+        />
+      </HoverSyncProvider>,
+    );
+
+    // 가닥마다 곡선이 하나씩 있어야 한다 (실제 선 1 + 가닥 3)
+    expect(container.querySelectorAll('[class*=recharts-line-curve]').length).toBe(4);
+    // 점은 예측 자리에만
+    expect(container.querySelectorAll('g[style*="cursor: pointer"] circle[r="4"]').length).toBe(3);
+  });
+
   it('마지막 실제 지점에서 증권사별로 갈라진다', () => {
     const container = draw(PRICE_METRIC, [RESEARCH]);
     // 증권사 3곳 = 가닥 3개. 실제 주가 선까지 더해 4개가 된다.

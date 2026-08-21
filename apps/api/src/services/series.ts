@@ -28,8 +28,10 @@ import {
   ensureAnnualFinancials,
   ensureInterimTtm,
   ensureQuarterlyFinancials,
+  ensureQuarterlyShares,
   loadCompanies,
   loadFacts,
+  type CompanyRef,
 } from './financials.js';
 import { ensureClosePrices, ensureQuarterlyClosePrices, isSplitAdjustedSource, type PriceDeps } from './prices.js';
 import { ensureConsensus, type CompanyConsensus, type ConsensusWarning } from './consensus.js';
@@ -259,7 +261,25 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
   );
   const periods = buildPeriodAxis(request.fromYear, request.toYear, request.periodType);
 
-  if (needsPrice) applySplitAdjustment(deps, companies, facts, periods, warnings);
+  /*
+   * 분기 축의 분할 계수.
+   *
+   * 분기 재무데이터에는 주식수가 없어서 분기 화면에서는 분할 감지가 통째로
+   * 실패했다 — 삼성전자 주가가 2018Q2 에서 50배 절벽으로 꺾였다.
+   *
+   * 연간 주식수로 "어느 해에 갈렸는지" 를 먼저 찾고, 그 해만 분기 주식수를
+   * 받아 정확한 분기를 짚는다. 나머지 해는 연간 값으로 메운다 — 분할이
+   * 없던 해는 어차피 계수가 1 이라 정밀도가 필요 없다.
+   *
+   * 메운 값은 계수 계산에만 쓰고 facts 에는 넣지 않는다. 분기 BPS 를
+   * 연간 주식수로 계산하면 공시하지 않은 숫자를 지어내는 셈이다.
+   */
+  let quarterFactors: Map<string, number[]> | undefined;
+  if (request.periodType === 'Q' && needsPrice) {
+    quarterFactors = await quarterlySplitFactors(deps, companies, request, periods, fetchFrom);
+  }
+
+  if (needsPrice) applySplitAdjustment(deps, companies, facts, periods, warnings, quarterFactors);
 
   /*
    * 분할 지점은 조정하기 전에 찾아 둔다.
@@ -269,8 +289,14 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
   for (const company of companies) {
     const byYear = facts.get(company.id);
     if (byYear === undefined) continue;
-    const shares = periods.map((p) => byYear.get(p)?.get('sharesOutstanding') ?? null);
-    const events = detectSplits(periods, shares);
+    const shares =
+      quarterFactors === undefined
+        ? periods.map((p) => byYear.get(p)?.get('sharesOutstanding') ?? null)
+        : null;
+    const events =
+      shares === null
+        ? splitEventsFromFactors(periods, quarterFactors?.get(company.id))
+        : detectSplits(periods, shares);
     if (events.length > 0) splitEvents.set(company.id, events);
   }
 
@@ -280,6 +306,11 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
    */
   const splitFactorsById = new Map<string, number[]>();
   for (const company of companies) {
+    const fromQuarters = quarterFactors?.get(company.id);
+    if (fromQuarters !== undefined) {
+      if (fromQuarters.some((f) => f !== 1)) splitFactorsById.set(company.id, fromQuarters);
+      continue;
+    }
     const byYear = facts.get(company.id);
     if (byYear === undefined) continue;
     const shares = periods.map((p) => byYear.get(p)?.get('sharesOutstanding') ?? null);
@@ -287,7 +318,7 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
     if (factors.some((f) => f !== 1)) splitFactorsById.set(company.id, factors);
   }
 
-  if (request.adjustSplits) applyDisplaySplitAdjustment(companies, facts, periods);
+  if (request.adjustSplits) applyDisplaySplitAdjustment(companies, facts, periods, quarterFactors);
 
   // 정규화 모드에서는 환산하지 않는다. 성장률에 환율 변동이 섞이면
   // 기업 성과가 아니라 환율을 보게 된다.
@@ -607,13 +638,19 @@ function applyDisplaySplitAdjustment(
   companies: readonly { id: string }[],
   facts: Map<string, Map<string, Map<BaseMetricId, number | null>>>,
   periods: readonly string[],
+  precomputed?: Map<string, number[]> | undefined,
 ): void {
   for (const company of companies) {
     const byYear = facts.get(company.id);
     if (byYear === undefined) continue;
 
-    const shares = periods.map((p) => byYear.get(p)?.get('sharesOutstanding') ?? null);
-    const factors = splitAdjustmentFactors(periods, shares);
+    // 분기 축은 주식수가 없어 계수를 밖에서 미리 계산해 넘긴다
+    const factors =
+      precomputed?.get(company.id) ??
+      splitAdjustmentFactors(
+        periods,
+        periods.map((p) => byYear.get(p)?.get('sharesOutstanding') ?? null),
+      );
     if (factors.every((f) => f === 1)) continue;
 
     for (const [index, period] of periods.entries()) {
@@ -641,6 +678,7 @@ function applySplitAdjustment(
   facts: Map<string, Map<string, Map<BaseMetricId, number | null>>>,
   periods: readonly string[],
   warnings: SeriesWarning[],
+  precomputed?: Map<string, number[]> | undefined,
 ): void {
   for (const company of companies) {
     if (!isSplitAdjustedSource(deps, company as never)) continue;
@@ -648,8 +686,12 @@ function applySplitAdjustment(
     const byYear = facts.get(company.id);
     if (byYear === undefined) continue;
 
-    const shares = periods.map((p) => byYear.get(p)?.get('sharesOutstanding') ?? null);
-    const factors = splitAdjustmentFactors(periods, shares);
+    const factors =
+      precomputed?.get(company.id) ??
+      splitAdjustmentFactors(
+        periods,
+        periods.map((p) => byYear.get(p)?.get('sharesOutstanding') ?? null),
+      );
     if (factors.every((f) => f === 1)) continue;
 
     for (const [index, period] of periods.entries()) {
@@ -792,4 +834,81 @@ export function dedupeWarnings(warnings: readonly SeriesWarning[]): SeriesWarnin
     const list = periods.get(key);
     return list === undefined ? warning : { ...warning, period: list.sort().join(', ') };
   });
+}
+
+/**
+ * 분기 축의 분할 계수를 만든다.
+ *
+ * 연간 주식수로 분할이 있던 해를 먼저 찾고(연간 시계열은 이미 채워져 있다),
+ * 그 해만 분기 주식수를 받아 정확한 분기를 짚는다. 나머지 분기는 그 해의
+ * 연간 값으로 메운다 — 계수 계산에만 쓰고 화면에는 내보내지 않는다.
+ */
+async function quarterlySplitFactors(
+  deps: SeriesDeps,
+  companies: readonly CompanyRef[],
+  request: SeriesRequest,
+  periods: readonly string[],
+  fetchFrom: number,
+): Promise<Map<string, number[]>> {
+  const out = new Map<string, number[]>();
+
+  const annual = await loadFacts(deps.db, request.companyIds, fetchFrom, request.toYear, 'FY');
+  const annualYears = buildPeriodAxis(request.fromYear, request.toYear, 'FY');
+
+  for (const company of companies) {
+    const byYear = annual.get(company.id);
+    if (byYear === undefined) continue;
+
+    const annualShares = annualYears.map((y) => byYear.get(y)?.get('sharesOutstanding') ?? null);
+    const events = detectSplits(annualYears, annualShares);
+    if (events.length === 0) continue;
+
+    // 분할이 감지된 해만 분기 주식수를 받는다. 대개 한두 해뿐이다.
+    try {
+      await ensureQuarterlyShares(deps, company, events.map((e) => Number(e.period)));
+    } catch {
+      // 못 받아도 연간 값으로 메운 계수는 쓸 수 있다. 한 분기가 어긋날 뿐이다.
+    }
+
+    const quarterly = await loadFacts(deps.db, [company.id], fetchFrom, request.toYear, 'Q');
+    const byQuarter = quarterly.get(company.id);
+
+    const shares = periods.map((period) => {
+      const exact = byQuarter?.get(period)?.get('sharesOutstanding') ?? null;
+      if (exact !== null) return exact;
+      // 분할이 없던 해는 연간 값으로 충분하다 — 계수가 어차피 그 해 안에서 같다
+      return byYear.get(period.slice(0, 4))?.get('sharesOutstanding') ?? null;
+    });
+
+    const factors = splitAdjustmentFactors(periods, shares);
+    if (factors.some((f) => f !== 1)) out.set(company.id, factors);
+  }
+
+  return out;
+}
+
+/**
+ * 계수 배열에서 분할 지점을 되짚는다.
+ *
+ * 분기 축에서는 주식수를 화면에 내보내지 않아 detectSplits 를 다시 돌릴 수
+ * 없다. 계수가 바뀌는 자리가 곧 분할 지점이다.
+ */
+function splitEventsFromFactors(
+  periods: readonly string[],
+  factors: readonly number[] | undefined,
+): SplitEvent[] {
+  if (factors === undefined) return [];
+
+  const events: SplitEvent[] = [];
+  for (let i = 1; i < periods.length; i++) {
+    const before = factors[i - 1] ?? 1;
+    const after = factors[i] ?? 1;
+    if (before === after) continue;
+
+    const ratio = before / after;
+    const period = periods[i];
+    if (period === undefined || !Number.isFinite(ratio) || ratio === 1) continue;
+    events.push({ period, ratio, kind: ratio > 1 ? 'SPLIT' : 'REVERSE_SPLIT' });
+  }
+  return events;
 }

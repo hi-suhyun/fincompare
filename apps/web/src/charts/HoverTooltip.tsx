@@ -76,7 +76,7 @@ export function HoverTooltip({
       onMouseLeave={scheduleClear}
       style={{ left, top, width: estimatedWidth }}
       className="pointer-events-auto fixed z-50 rounded-xl border border-[var(--line)]
-                 bg-white/98 px-3.5 py-3 shadow-lg backdrop-blur"
+                 bg-white/80 px-3.5 py-3 shadow-lg backdrop-blur-md"
       role="dialog"
       aria-label={`${label} 값`}
     >

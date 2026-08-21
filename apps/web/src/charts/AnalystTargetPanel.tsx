@@ -39,7 +39,7 @@ export function AnalystTargetPanel({
       // 쪽지 위로 넘어와도 닫히지 않아야 읽을 수 있다
       onMouseLeave={onClose}
       className="absolute right-3 top-3 z-20 w-64 rounded-xl border border-[var(--line)]
-                 bg-white/98 px-3.5 py-3 shadow-lg backdrop-blur"
+                 bg-white/80 px-3.5 py-3 shadow-lg backdrop-blur-md"
       role="dialog"
       aria-label={`${projection.firm} 목표주가`}
     >
