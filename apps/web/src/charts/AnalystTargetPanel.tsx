@@ -49,7 +49,9 @@ export function AnalystTargetPanel({
           className="inline-block h-2 w-2 rounded-full"
           style={{ backgroundColor: company?.color ?? '#666' }}
         />
-        <strong className="font-semibold">{projection.firm}</strong>
+        <strong className="font-semibold">
+          {projection.aggregate ? `증권가 ${projection.firm}` : projection.firm}
+        </strong>
         {projection.date !== undefined && (
           <span className="ml-auto text-[13px] text-[var(--ink-muted)]">{projection.date}</span>
         )}
@@ -81,8 +83,9 @@ export function AnalystTargetPanel({
       )}
 
       <p className="mt-2 text-[13px] text-[var(--ink-muted)]">
-        직접 조사해 적어 둔 기록입니다. 전체 집계가 아니라 찾은 것만이라 평균과 개수가 맞지
-        않을 수 있습니다.
+        {projection.aggregate
+          ? `증권사별 목표가는 ${consensus?.source ?? '제공처'} 무료 구간에서 주지 않아 집계값만 표시합니다.`
+          : '직접 조사해 적어 둔 기록입니다. 전체 집계가 아니라 찾은 것만이라 평균과 개수가 맞지 않을 수 있습니다.'}
         {consensus?.asOf !== undefined && ` 조사일 ${consensus.asOf}.`}
       </p>
     </div>

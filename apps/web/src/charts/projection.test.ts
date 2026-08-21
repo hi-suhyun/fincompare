@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { lastActualIndex, nextPeriodLabel, pickRepresentative } from './projection.js';
+import {
+  lastActualIndex,
+  nextPeriodLabel,
+  pickRepresentative,
+  projectionsFor,
+} from './projection.js';
+import type { CompanyConsensus } from '../lib/api.js';
 import type { AnalystTarget } from '../lib/api.js';
 
 describe('nextPeriodLabel', () => {
@@ -59,5 +65,44 @@ describe('lastActualIndex', () => {
 
   it('전부 비었으면 -1', () => {
     expect(lastActualIndex([null, null])).toBe(-1);
+  });
+});
+
+const base: CompanyConsensus = {
+  companyId: 'US:NVDA',
+  estimates: {},
+  priceTarget: { high: 500, avg: 319.48, low: 218, currency: 'USD' },
+  source: 'FMP',
+  currency: 'USD',
+};
+
+describe('projectionsFor — 집계만 있을 때', () => {
+  it('증권사 목록이 없어도 최고·평균·최저로 부챗살을 만든다', () => {
+    // FMP 무료 구간은 집계만 준다. 안 그리면 미국 기업은 통째로 안 보인다.
+    const made = projectionsFor(base, 4);
+    expect(made.map((p) => p.firm)).toEqual(['최고', '평균', '최저']);
+    expect(made.map((p) => p.target)).toEqual([500, 319.48, 218]);
+  });
+
+  it('집계에서 뽑았다고 표시한다 — 증권사 이름이라고 하면 거짓이다', () => {
+    expect(projectionsFor(base, 4).every((p) => p.aggregate === true)).toBe(true);
+  });
+
+  it('증권사 목록이 있으면 그쪽을 쓴다', () => {
+    const withFirms: CompanyConsensus = {
+      ...base,
+      priceTarget: {
+        ...base.priceTarget!,
+        analysts: [{ firm: 'KB증권', target: 400 }],
+      },
+    };
+    const made = projectionsFor(withFirms, 4);
+    expect(made).toHaveLength(1);
+    expect(made[0]?.firm).toBe('KB증권');
+    expect(made[0]?.aggregate).toBeUndefined();
+  });
+
+  it('목표주가가 아예 없으면 그리지 않는다', () => {
+    expect(projectionsFor({ ...base, priceTarget: null }, 4)).toEqual([]);
   });
 });

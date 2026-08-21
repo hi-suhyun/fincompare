@@ -12,13 +12,25 @@ import type { AnalystTarget, CompanyConsensus } from '../lib/api.js';
  * 증권가의 의견 차이다.
  */
 
+/** 가닥을 몇 개까지 그릴지. 넘으면 겹쳐서 오히려 안 읽힌다 */
+export const MAX_PROJECTIONS = 4;
+
 /** 한 가닥. 마지막 실제 주가에서 목표가까지 잇는다 */
 export interface Projection {
   companyId: string;
   /** 차트 dataKey. 회사·증권사마다 달라야 선이 섞이지 않는다 */
   key: string;
+  /** 증권사 이름. 집계만 있을 때는 '최고'·'평균'·'최저' 가 들어간다 */
   firm: string;
   target: number;
+  /**
+   * 개별 증권사가 아니라 **집계에서 뽑은** 가닥인지.
+   *
+   * FMP 무료 구간은 증권사별 목록을 주지 않고 최고·평균·최저만 준다.
+   * 그것도 부챗살로 그릴 수는 있지만, 화면에서 "어느 증권사" 라고 말하면
+   * 거짓이 된다.
+   */
+  aggregate?: boolean;
   date?: string | undefined;
   previous?: number | undefined;
 }
@@ -68,16 +80,43 @@ export function projectionsFor(
   max: number,
 ): Projection[] {
   const analysts = consensus.priceTarget?.analysts ?? [];
-  if (analysts.length === 0) return [];
 
-  return pickRepresentative(analysts, max).map((a, index) => ({
-    companyId: consensus.companyId,
-    key: `${consensus.companyId}__proj${index}`,
-    firm: a.firm,
-    target: a.target,
-    date: a.date,
-    previous: a.previous,
-  }));
+  if (analysts.length > 0) {
+    return pickRepresentative(analysts, max).map((a, index) => ({
+      companyId: consensus.companyId,
+      key: `${consensus.companyId}__proj${index}`,
+      firm: a.firm,
+      target: a.target,
+      date: a.date,
+      previous: a.previous,
+    }));
+  }
+
+  /*
+   * 증권사별 목록이 없으면 집계로 부챗살을 만든다.
+   *
+   * FMP 무료 구간은 최고·평균·최저만 준다. 가닥을 하나도 안 그리면 미국
+   * 기업에서는 컨센서스가 통째로 안 보인다 — 실제로 엔비디아가 그랬다.
+   * 폭은 그대로 드러나므로 부챗살의 뜻은 살아 있다.
+   */
+  const t = consensus.priceTarget;
+  if (t === null || t === undefined) return [];
+
+  const rows: Array<[string, number | null]> = [
+    ['최고', t.high],
+    ['평균', t.avg],
+    ['최저', t.low],
+  ];
+
+  return rows
+    .filter((row): row is [string, number] => row[1] !== null)
+    .map(([label, value], index) => ({
+      companyId: consensus.companyId,
+      key: `${consensus.companyId}__proj${index}`,
+      firm: label,
+      target: value,
+      aggregate: true,
+    }));
 }
 
 /**

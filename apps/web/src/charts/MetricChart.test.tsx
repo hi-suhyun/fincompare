@@ -162,12 +162,18 @@ describe('MetricChart — 목표주가 가닥', () => {
     expect(container.querySelectorAll('g[style*="cursor: pointer"] circle[r="4"]').length).toBe(0);
   });
 
-  it('증권사별 목표가가 없으면 그리지 않는다', () => {
+  it('증권사별 목표가가 없으면 집계로 세 가닥을 그린다', () => {
+    // FMP 무료 구간은 집계만 준다. 안 그리면 미국 기업은 통째로 안 보인다.
     const noAnalysts = {
       ...RESEARCH,
       priceTarget: { high: 650000, avg: 493542, low: 300000, currency: 'KRW' },
     };
     const container = draw(PRICE_METRIC, [noAnalysts]);
+    expect(container.querySelectorAll('g[style*="cursor: pointer"] circle[r="4"]').length).toBe(3);
+  });
+
+  it('목표주가가 아예 없으면 그리지 않는다', () => {
+    const container = draw(PRICE_METRIC, [{ ...RESEARCH, priceTarget: null }]);
     expect(container.querySelectorAll('g[style*="cursor: pointer"] circle[r="4"]').length).toBe(0);
   });
 });

@@ -16,7 +16,12 @@ import type { DisplayCurrency } from '../lib/format.js';
 import { useRef, useState } from 'react';
 import { useHoverSync } from './hoverSync.js';
 import { AnalystTargetPanel } from './AnalystTargetPanel.js';
-import { lastActualIndex, projectionsFor, type Projection } from './projection.js';
+import {
+  MAX_PROJECTIONS,
+  lastActualIndex,
+  projectionsFor,
+  type Projection,
+} from './projection.js';
 
 interface Props {
   metric: SeriesMetric;
@@ -50,9 +55,6 @@ interface Props {
  */
 const Y_AXIS_WIDTH = 78;
 const CHART_MARGIN = { top: 8, right: 24, bottom: 4, left: 0 };
-
-/** 가닥을 몇 개까지 그릴지. 넘으면 겹쳐서 오히려 안 읽힌다 */
-const MAX_PROJECTIONS = 4;
 
 /** Recharts 가 점 렌더러에 넘겨주는 값 중 우리가 쓰는 것 */
 interface DotProps {
@@ -221,8 +223,13 @@ export function MetricChart({
 
       {projections.length > 0 && (
         <p className="mb-1 text-sm text-[var(--ink-muted)]">
-          오른쪽 끝에서 갈라지는 옅은 점선은 <strong className="font-medium">증권사별 목표주가</strong>
-          입니다. 점에 마우스를 올리면 어느 증권사인지 나옵니다. 벌어진 폭이 곧 의견 차이입니다 —
+          오른쪽 끝에서 갈라지는 옅은 점선은{' '}
+          <strong className="font-medium">
+            {projections.every((p) => p.aggregate === true)
+              ? '증권가 목표주가(최고·평균·최저)'
+              : '증권사별 목표주가'}
+          </strong>
+          입니다. 점에 마우스를 올리면 자세히 나옵니다. 벌어진 폭이 곧 의견 차이입니다 —
           목표주가는 통상 12개월 기준이라, 다음 구간에 찍은 것은 자리를 표시한 것이지 그때
           그 값이 된다는 뜻이 아닙니다.
         </p>

@@ -3,7 +3,7 @@ import { useMemo, useRef } from 'react';
 import { ExportButtons } from '../features/export/ExportButtons.js';
 import type { SeriesResponse } from '../lib/api.js';
 import { formatByUnit, resolveCurrency } from '../lib/format.js';
-import { nextPeriodLabel } from './projection.js';
+import { MAX_PROJECTIONS, nextPeriodLabel, projectionsFor } from './projection.js';
 import { HoverSyncProvider } from './hoverSync.js';
 import { MetricChart } from './MetricChart.js';
 import { OverlayChart } from './OverlayChart.js';
@@ -106,7 +106,7 @@ export function ChartStack({
    */
   const showsPrice = data.series.some((m) => m.metricId === 'closePrice');
   const hasProjections = drawableConsensus.some(
-    (c) => (c.priceTarget?.analysts?.length ?? 0) > 0,
+    (c) => projectionsFor(c, MAX_PROJECTIONS).length > 0,
   );
   const axisPeriods = useMemo(() => {
     const last = data.periods[data.periods.length - 1];
