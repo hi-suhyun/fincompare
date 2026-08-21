@@ -250,3 +250,46 @@ describe('HoverTooltip — 같은 기간 안에서는 움직이지 않아야 한
     expect(seen).toEqual({ x: 260, y: 50 });
   });
 });
+
+describe('HoverTooltip — 값이 없는 시점', () => {
+  const QUARTERS = ['2026Q1', '2026Q2', '2026Q3', '2026Q4'];
+  const PARTIAL: SeriesMetric[] = [
+    {
+      metricId: 'closePrice',
+      label: '주가',
+      unit: '통화',
+      formula: '기말 종가',
+      basis: '연결',
+      data: { 'KR:005930': [100, 200, null, null] },
+    } as SeriesMetric,
+  ];
+
+  function renderQuarter(period: string) {
+    return render(
+      <HoverSyncProvider>
+        <SetHover period={period} />
+        <HoverTooltip
+          companies={[COMPANIES[0] as SeriesCompany]}
+          metrics={PARTIAL}
+          periods={QUARTERS}
+          currency="KRW"
+        />
+      </HoverSyncProvider>,
+    );
+  }
+
+  it('아직 공시 전이면 그렇게 밝힌다', () => {
+    // "데이터 없음" 만 뜨면 회사가 공시를 빠뜨린 것으로 읽힌다
+    act(() => {
+      renderQuarter('2026Q4');
+    });
+    expect(screen.getByText(/아직 공시 전입니다/)).toBeTruthy();
+  });
+
+  it('값이 있으면 설명을 붙이지 않는다', () => {
+    act(() => {
+      renderQuarter('2026Q2');
+    });
+    expect(screen.queryByText(/아직 공시 전입니다/)).toBeNull();
+  });
+});

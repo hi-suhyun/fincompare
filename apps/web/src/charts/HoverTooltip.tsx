@@ -60,6 +60,31 @@ export function HoverTooltip({
   const label = isQuarter ? activePeriod : `${activePeriod}년`;
   const korean = companies.filter((c) => c.country === 'KR');
 
+  /*
+   * 이 시점에 값이 하나도 없으면 왜 없는지 말한다.
+   *
+   * "데이터 없음" 만 세 칸 뜨면 회사가 공시를 빠뜨린 것으로 읽힌다.
+   * 대개는 아직 지나지 않은 기간일 뿐이다 — 마지막으로 값이 있는 자리보다
+   * 뒤에 있으면 그렇게 밝힌다.
+   */
+  const hasAnyValue = (at: number): boolean =>
+    metrics.some((m) => companies.some((c) => (m.data[c.id]?.[at] ?? null) !== null));
+
+  const allMissing = !hasAnyValue(index);
+  let lastFilled = -1;
+  for (let i = periods.length - 1; i >= 0; i--) {
+    if (hasAnyValue(i)) {
+      lastFilled = i;
+      break;
+    }
+  }
+
+  const reason = !allMissing
+    ? null
+    : lastFilled >= 0 && index > lastFilled
+      ? `아직 공시 전입니다. 가장 최근은 ${periods[lastFilled] ?? ''} 입니다.`
+      : '이 시점에는 공시된 값이 없습니다.';
+
   // 오른쪽·아래가 좁으면 반대편으로 넘긴다. 잘려서 안 보이면 소용없다.
   const estimatedWidth = 320;
   const estimatedHeight = 90 + companies.length * 26 + (korean.length > 0 ? 34 : 0);
@@ -76,7 +101,7 @@ export function HoverTooltip({
       onMouseLeave={scheduleClear}
       style={{ left, top, width: estimatedWidth }}
       className="pointer-events-auto fixed z-50 rounded-xl border border-[var(--line)]
-                 bg-white/80 px-3.5 py-3 shadow-lg backdrop-blur-md"
+                 bg-white/60 px-3.5 py-3 shadow-lg backdrop-blur-lg"
       role="dialog"
       aria-label={`${label} 값`}
     >
@@ -113,6 +138,12 @@ export function HoverTooltip({
           ))}
         </tbody>
       </table>
+
+      {reason !== null && (
+        <p className="mt-1.5 border-t border-[var(--line)] pt-1.5 text-sm text-[var(--ink-muted)]">
+          {reason}
+        </p>
+      )}
 
       {metrics.length > 1 && (
         <div className="mt-1 flex justify-end gap-2 text-xs text-[var(--ink-muted)]">

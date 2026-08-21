@@ -146,6 +146,18 @@ export function ChartStack({
 
   const consensusIdle = !consensusShown && hasEstimates;
 
+  /*
+   * 분기 축에서 추정 밴드가 빠진 것을 차트 옆에서 말한다.
+   *
+   * 토글 설명에도 적어 뒀지만 그건 화면 위쪽이라, 분기로 바꾸고 차트만
+   * 보고 있으면 밴드가 왜 사라졌는지 알 수 없다.
+   */
+  const quarterly = (data.periods[0] ?? '').includes('Q');
+  const estimatesDroppedByQuarter =
+    quarterly &&
+    data.consensus.length > 0 &&
+    data.series.some((m) => m.metricId === 'eps' || m.metricId === 'revenue');
+
   const lineCount = data.series.length * data.companies.length;
   // 겹쳐 보기는 한 차트라 세로 공간을 몰아 쓸 수 있다
   const height = overlay ? 420 : chartHeight(data.series.length);
@@ -192,6 +204,14 @@ export function ChartStack({
             <p className="rounded-xl border-2 border-[#e8d5a8] bg-[#fffaf0] px-4 py-2.5 text-sm">
               선이 {lineCount}개라 겹쳐 보기로는 구분이 어렵습니다. 기업이나 지표를 줄이거나
               쌓아 보기로 돌아가세요.
+            </p>
+          )}
+
+          {estimatesDroppedByQuarter && (
+            <p className="rounded-xl border border-[var(--line)] bg-white px-4 py-2.5 text-sm text-[var(--ink-muted)]">
+              매출액·EPS <strong className="font-medium">추정 밴드는 분기 보기에서 빠집니다</strong>{' '}
+              — 애널리스트 추정치가 연 단위라 분기 칸에 얹으면 자리가 어긋납니다. 「연간」으로
+              바꾸면 보입니다. 목표주가 가닥은 분기에서도 그대로 나옵니다.
             </p>
           )}
 

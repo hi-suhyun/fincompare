@@ -584,6 +584,39 @@ export async function buildSeries(deps: SeriesDeps, request: SeriesRequest): Pro
     }
   }
 
+  /*
+   * 아직 공시되지 않은 분기를 알린다.
+   *
+   * 분기 축은 요청한 해의 4분기까지 자리를 만들어 두는데, 지나지 않은 분기는
+   * 당연히 비어 있다. 아무 말이 없으면 값 표에 "데이터 없음" 만 뜨고
+   * 사용자는 회사가 공시를 빠뜨린 것으로 읽는다.
+   */
+  if (request.periodType === 'Q') {
+    for (const company of companies) {
+      const byPeriod = facts.get(company.id);
+      if (byPeriod === undefined) continue;
+
+      const filled = periods.filter((p) =>
+        [...(byPeriod.get(p)?.values() ?? [])].some((v) => v !== null),
+      );
+      const last = filled[filled.length - 1];
+      if (last === undefined) continue;
+
+      const pending = periods.slice(periods.indexOf(last) + 1);
+      if (pending.length === 0) continue;
+
+      warnings.push({
+        companyId: company.id,
+        metricId: request.metrics[0] ?? 'revenue',
+        code: 'METRIC_NOT_TAGGED',
+        detail:
+          `${pending.join(' · ')} 는 아직 공시 전입니다. ` +
+          `가장 최근 공시는 ${last} 입니다.`,
+        period: pending[0] ?? last,
+      });
+    }
+  }
+
   const provenance: Record<string, { source: string; consolidation: string; basis: string }> = {};
   for (const company of companies) {
     const usedSeparate = warnings.some(
